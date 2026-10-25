@@ -1,0 +1,42 @@
+{
+  "$schema": "./shotparty.config.schema.json",
+  "aws": {
+    "profile": "shotparty",
+    "region": "us-east-1",
+    "prefix": "shotparty"
+  },
+  "alerts": {
+    "email": "you@example.com"
+  },
+  "stages": {
+    "dev": {
+      "turnstileSiteKey": "1x00000000000000000000BB",
+      "accountBudget": true
+    },
+    "prod": {
+      "turnstileSiteKey": "0x4AAAAAAAREPLACE_ME"
+    }
+  },
+  "uploads": {
+    "maxFileGb": 1,
+    "sessionFiles": 500,
+    "sessionGb": 10
+  },
+  "events": [
+    {
+      "name": "Summer Party",
+      "eventId": "summer-party-2026",
+      "stage": "prod",
+      "openFrom": "2026-07-18T16:00:00-07:00",
+      "openUntil": "2026-08-17T23:59:59-07:00",
+      "pin": "none",
+      "headline": "Share your photos",
+      "welcome": "Add your photos and videos from tonight.",
+      "thanks": "Thanks for coming!",
+      "accentColor": "#1a5fb4"
+    }
+  ],
+  "download": {
+    "outDir": "photos"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.aws-sam/
+package-lock.json
+docs/
+CLAUDE.md
+test-results/
+playwright-report/

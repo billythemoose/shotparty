@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)" />
+    <title>Share your photos</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <!-- Filled in from the event (display.ts); these are the neutral defaults. -->
+        <p id="event-name" class="eyebrow"></p>
+        <h1 id="headline">Share your photos</h1>
+        <p id="welcome" class="lede">Add your photos and videos. Full quality, no app needed.</p>
+      </header>
+
+      <p id="blocked" class="notice" hidden></p>
+
+      <div id="uploader" hidden>
+        <label id="pin-field" class="field" hidden>
+          <span>PIN <span class="muted">(printed on your card)</span></span>
+          <input id="pin" type="text" inputmode="numeric" autocomplete="off" maxlength="32" />
+        </label>
+
+        <label class="field">
+          <span>Your name <span class="muted">(optional)</span></span>
+          <input
+            id="guest-name"
+            type="text"
+            autocomplete="name"
+            maxlength="80"
+            placeholder="So we know who took them"
+          />
+        </label>
+
+        <input
+          id="files"
+          class="visually-hidden"
+          type="file"
+          accept="image/*,video/*,.dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2"
+          multiple
+        />
+        <div id="turnstile" class="turnstile"></div>
+        <label class="picker" for="files">
+          <span class="picker-icon" aria-hidden="true">＋</span>
+          <span>Choose photos &amp; videos</span>
+        </label>
+
+        <section id="progress" class="progress" hidden aria-live="polite">
+          <div class="summary">
+            <span id="summary-text"></span>
+            <button id="retry-failed" type="button" class="link" hidden>Retry failed</button>
+          </div>
+          <div class="bar" aria-hidden="true"><div id="overall-bar"></div></div>
+          <p id="keep-open" class="hint">Please keep this page open until uploads finish.</p>
+          <p id="thanks" class="thanks" hidden></p>
+          <ul id="file-list" class="file-list"></ul>
+        </section>
+      </div>
+
+      <footer class="muted">
+        <span id="api"></span>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

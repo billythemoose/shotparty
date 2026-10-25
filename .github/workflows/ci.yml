@@ -1,0 +1,104 @@
+# Every check that runs locally before a commit, on every push to main and every pull request.
+# Needs no secrets: nothing here talks to AWS (sam validate works offline).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - name: Docs links and line references
+        run: npm run lint:docs
+      - run: npm run typecheck
+      - run: npm run test:coverage
+      - name: Coverage summary
+        run: |
+          node -e '
+            const t = require("./coverage/coverage-summary.json").total;
+            const row = (k) => "| " + k + " | " + t[k].pct + "% | " + t[k].covered + "/" + t[k].total + " |";
+            console.log(["| | Coverage | Covered |", "|---|---|---|",
+              ...["lines", "statements", "functions", "branches"].map(row)].join("\n"));
+          ' >> "$GITHUB_STEP_SUMMARY"
+      - name: Coverage badge is current (warns only)
+        run: npm run coverage:badge -- --check
+      - run: npm run build
+      - name: Lambda bundles import cleanly (ESM, like Lambda)
+        run: npm run smoke --workspace api
+
+  e2e:
+    name: Browser tests (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Upload traces of failed tests
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-traces
+          path: web/test-results/
+          retention-days: 7
+
+  infra:
+    name: Templates and shell scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AWS_DEFAULT_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - run: pip install cfn-lint==1.57.0
+      - uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+        with:
+          version: 1.166.2
+          use-installer: true
+      - name: cfn-lint and bash syntax
+        run: npm run lint:infra
+      - name: sam validate
+        run: |
+          for t in data app; do
+            (cd "infra/$t" && sam validate --lint)
+          done
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          npm run lint:shell
+      - name: No account identifiers
+        run: npm run lint:identifiers

@@ -1,0 +1,790 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  shotparty app stack: CloudFront + static site bucket + HTTP API + Lambdas. Safe to redeploy or
+  delete at any time (use scripts/delete-app.sh, which empties the site bucket first); long-lived
+  data lives in the data stack and is found via SSM.
+
+Parameters:
+  Stage:
+    Type: String
+    AllowedValues: [dev, prod]
+  Prefix:
+    Type: String
+    Default: shotparty
+    AllowedPattern: '^[a-z][a-z0-9-]{1,20}[a-z0-9]$'
+    Description: >-
+      Name prefix for SSM parameters (/<Prefix>/<Stage>/...), resource names and tags. Must match
+      the stack name prefix; set from shotparty.config.json (aws.prefix) by scripts/deploy.sh.
+  # Resolved from SSM at deploy time; samconfig.toml passes the stage-specific parameter path.
+  MediaBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+  TableName:
+    Type: AWS::SSM::Parameter::Value<String>
+  TurnstileSiteKey:
+    Type: String
+    Description: >-
+      Public Cloudflare Turnstile site key served to the page. Cloudflare's always-pass test key
+      1x00000000000000000000BB is fine for dev; the matching secret lives in SSM (see
+      scripts/bootstrap-secrets.sh).
+  WebAclArn:
+    Type: String
+    Default: ''
+    Description: >-
+      ARN of the CloudFront WAF web ACL created by the CloudFront flat-rate (Free) plan subscription.
+      Set it after subscribing so redeploys keep the association instead of drifting it away.
+  AccountBudget:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: >-
+      Create the account-wide monthly cost budget in this stack. Budgets are per account, not per
+      stage, so exactly one deployed stage should set this to true.
+  TurnstileHostnames:
+    Type: String
+    Default: ''
+    Description: >-
+      Comma-separated hostnames the Turnstile widget may be served from (checked server-side).
+      Leave empty only with Cloudflare's test keys, which don't report a real hostname.
+  MaxUploadBytes:
+    Type: Number
+    Default: 1073741824
+    MinValue: 1
+    MaxValue: 5368709120
+    Description: >-
+      Largest file a guest may upload, in bytes (shotparty.config.json uploads.maxFileGb). One
+      presigned POST per file, so S3's 5 GiB POST limit is the ceiling.
+  DefaultSessionFiles:
+    Type: Number
+    Default: 500
+    MinValue: 1
+    Description: >-
+      Files per guest session for events without their own limit (uploads.sessionFiles).
+  DefaultSessionBytes:
+    Type: Number
+    Default: 10737418240
+    MinValue: 1
+    Description: >-
+      Bytes per guest session for events without their own limit (uploads.sessionGb).
+
+Conditions:
+  HasWebAcl: !Not [!Equals [!Ref WebAclArn, '']]
+  CreateBudget: !Equals [!Ref AccountBudget, 'true']
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 256
+    Timeout: 10
+    Handler: index.handler
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        MEDIA_BUCKET: !Ref MediaBucketName
+        TABLE_NAME: !Ref TableName
+        UPLOADS_ENABLED_PARAM: !Sub /${Prefix}/${Stage}/uploads_enabled
+        SESSION_KEY_PARAM: !Sub /${Prefix}/${Stage}/session_key
+        TURNSTILE_SECRET_PARAM: !Sub /${Prefix}/${Stage}/turnstile_secret
+        ORIGIN_VERIFY_PARAM: !Sub /${Prefix}/${Stage}/origin_verify
+        TURNSTILE_SITE_KEY: !Ref TurnstileSiteKey
+        TURNSTILE_HOSTNAMES: !Ref TurnstileHostnames
+    Tags:
+      project: !Ref Prefix
+      stage: !Ref Stage
+
+Resources:
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      # Total per route (NOT per guest), so sized for a venue rush: ~150 guests x 3 parallel uploads.
+      # A flood beyond this gets 429s (the page retries those) and caps the Lambda/API bill.
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 50
+        ThrottlingBurstLimit: 100
+      Tags:
+        project: !Ref Prefix
+        stage: !Ref Stage
+
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      ReservedConcurrentExecutions: 5
+      CodeUri: ../../api/dist/health
+      LoggingConfig:
+        LogGroup: !Ref HealthLogGroup
+      Events:
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: GET
+            Path: /api/health
+
+  PresignFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      ReservedConcurrentExecutions: 100
+      CodeUri: ../../api/dist/presign
+      LoggingConfig:
+        LogGroup: !Ref PresignLogGroup
+      Environment:
+        Variables:
+          MAX_UPLOAD_BYTES: !Ref MaxUploadBytes
+          DEFAULT_SESSION_FILES: !Ref DefaultSessionFiles
+          DEFAULT_SESSION_BYTES: !Ref DefaultSessionBytes
+      Policies:
+        - Statement:
+            # The presigned POST is signed with this role, so it can only ever grant uploads/*.
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub arn:${AWS::Partition}:s3:::${MediaBucketName}/uploads/*
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem # quota counters (single-item conditional updates)
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TableName}
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource:
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Prefix}/${Stage}/uploads_enabled
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Prefix}/${Stage}/session_key
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Prefix}/${Stage}/origin_verify
+      Events:
+        Post:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /api/presign
+
+  EventFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      ReservedConcurrentExecutions: 25
+      CodeUri: ../../api/dist/event
+      LoggingConfig:
+        LogGroup: !Ref EventLogGroup
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TableName}
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource:
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Prefix}/${Stage}/uploads_enabled
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Prefix}/${Stage}/origin_verify
+      Events:
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: GET
+            Path: /api/event/{token}
+
+  # Verifies Turnstile (+ PIN) once and issues an HMAC-signed upload session.
+  SessionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      ReservedConcurrentExecutions: 25
+      CodeUri: ../../api/dist/session
+      LoggingConfig:
+        LogGroup: !Ref SessionLogGroup
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TableName}
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource:
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Prefix}/${Stage}/uploads_enabled
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Prefix}/${Stage}/session_key
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Prefix}/${Stage}/turnstile_secret
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Prefix}/${Stage}/origin_verify
+      Events:
+        Post:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /api/session
+
+  SessionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Prefix}-${Stage}-session
+      RetentionInDays: 14
+
+  EventLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Prefix}-${Stage}-event
+      RetentionInDays: 14
+
+  # Kill switch: any value other than "true" stops new presigns within ~30 s (Lambda cache).
+  # Flip with: aws ssm put-parameter --name /<prefix>/<stage>/uploads_enabled --value false --overwrite
+  # CloudFormation only rewrites the value if the template's Value changes, so a manual "false"
+  # survives unrelated redeploys; check it after deploys that touch this resource.
+  UploadsEnabledParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${Prefix}/${Stage}/uploads_enabled
+      Type: String
+      Value: 'true'
+      Description: shotparty kill switch; "true" allows new uploads, anything else blocks them
+
+  PresignLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Prefix}-${Stage}-presign
+      RetentionInDays: 14
+
+  # Checks every new upload's file signature; moves real media to accepted/, deletes the rest.
+  ValidateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      ReservedConcurrentExecutions: 50
+      CodeUri: ../../api/dist/validate
+      Timeout: 60 # server-side CopyObject of up to 1 GiB
+      LoggingConfig:
+        LogGroup: !Ref ValidateLogGroup
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:GetObjectVersion
+                - s3:DeleteObject
+                - s3:DeleteObjectVersion
+              Resource: !Sub arn:${AWS::Partition}:s3:::${MediaBucketName}/uploads/*
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub arn:${AWS::Partition}:s3:::${MediaBucketName}/accepted/*
+            # Without list permission S3 answers 403 (not 404) for a missing object, so duplicate
+            # EventBridge deliveries of an already-moved upload would fail instead of being skipped.
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+                - s3:ListBucketVersions
+              Resource: !Sub arn:${AWS::Partition}:s3:::${MediaBucketName}
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TableName}
+      Events:
+        UploadCreated:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source: [aws.s3]
+              detail-type: [Object Created]
+              detail:
+                bucket:
+                  name: [!Ref MediaBucketName]
+                object:
+                  key: [{ prefix: uploads/ }]
+            RetryPolicy:
+              MaximumRetryAttempts: 8
+              MaximumEventAgeInSeconds: 3600
+
+  ValidateLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Prefix}-${Stage}-validate
+      RetentionInDays: 14
+
+  HealthLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Prefix}-${Stage}-health
+      RetentionInDays: 14
+
+  # ---------- Static site: private bucket served only through CloudFront (OAC) ----------
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      Tags:
+        - Key: project
+          Value: !Ref Prefix
+        - Key: stage
+          Value: !Ref Stage
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${SiteBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt SiteBucket.Arn
+              - !Sub '${SiteBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  SiteOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${Prefix}-${Stage}-site-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # /e/<token> is a client-side route: serve index.html for it. Done in a viewer-request function
+  # rather than CustomErrorResponses, which would also rewrite genuine /api/* 403/404 errors.
+  SpaRewriteFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub ${Prefix}-${Stage}-spa-rewrite
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Serve index.html for /e/* client-side routes
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          if (request.uri === '/e' || request.uri.startsWith('/e/')) {
+            request.uri = '/index.html';
+          }
+          return request;
+        }
+
+  # /api/* requests: stamp the real viewer IP plus a shared secret so the API can trust that IP
+  # (behind CloudFront, API Gateway's sourceIp is an edge server). Both headers are overwritten,
+  # so a guest can't supply their own. The secret comes from SSM (scripts/bootstrap-secrets.sh);
+  # CloudFormation resolves it at deploy time, so redeploy after rotating it.
+  ApiViewerFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub ${Prefix}-${Stage}-api-viewer
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Add x-viewer-ip and x-origin-verify to /api/* requests
+        Runtime: cloudfront-js-2.0
+      FunctionCode: !Sub |
+        function handler(event) {
+          var request = event.request;
+          request.headers['x-viewer-ip'] = { value: event.viewer.ip };
+          request.headers['x-origin-verify'] = { value: '{{resolve:ssm:/${Prefix}/${Stage}/origin_verify}}' };
+          return request;
+        }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub ${Prefix} ${Stage}
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        # No PriceClass: the CloudFront flat-rate (Free) plan rejects it and serves from all edges.
+        WebACLId: !If [HasWebAcl, !Ref WebAclArn, !Ref AWS::NoValue]
+        DefaultRootObject: index.html
+        Origins:
+          - Id: site
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt SiteOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+          - Id: api
+            DomainName: !Sub ${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: site
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03 # Managed-SecurityHeadersPolicy
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt SpaRewriteFunction.FunctionMetadata.FunctionARN
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # Managed-AllViewerExceptHostHeader
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt ApiViewerFunction.FunctionMetadata.FunctionARN
+      Tags:
+        - Key: project
+          Value: !Ref Prefix
+        - Key: stage
+          Value: !Ref Stage
+
+  # ---------- Alerts: alarms -> SNS -> email; budget -> email ----------
+  # The address lives in SSM (/<prefix>/alert_email, set by scripts/bootstrap-secrets.sh), not in
+  # git; CloudFormation resolves it at deploy time. SNS emails a confirmation link first.
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Prefix}-${Stage}-alerts
+      DisplayName: !Sub ${Prefix} alerts
+
+  AlertsEmail:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Sub '{{resolve:ssm:/${Prefix}/alert_email}}'
+
+  # Log-based metrics from the handlers' JSON log lines (text-term patterns: the lines are prefixed
+  # with Lambda's timestamp/request id, so JSON-path patterns wouldn't match).
+  RejectionsMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ValidateLogGroup
+      FilterPattern: '"rejected" "bad-magic"'
+      MetricTransformations:
+        - MetricNamespace: !Sub ${Prefix}/${Stage}
+          MetricName: UploadsRejected
+          MetricValue: '1'
+          Unit: Count
+
+  QuotaExceededMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref PresignLogGroup
+      FilterPattern: '"quota-exceeded"'
+      MetricTransformations:
+        - MetricNamespace: !Sub ${Prefix}/${Stage}
+          MetricName: QuotaExceeded
+          MetricValue: '1'
+          Unit: Count
+
+  TurnstileFailedMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref SessionLogGroup
+      FilterPattern: '"turnstile-failed"'
+      MetricTransformations:
+        - MetricNamespace: !Sub ${Prefix}/${Stage}
+          MetricName: TurnstileFailed
+          MetricValue: '1'
+          Unit: Count
+
+  LambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-${Stage}-lambda-errors
+      AlarmDescription: A shotparty Lambda failed (uncaught error or timeout). Check its logs.
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Threshold: 1
+      EvaluationPeriods: 1
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+      Metrics:
+        - Id: total
+          Expression: SUM(METRICS())
+          Label: Errors across all functions
+        - {
+            Id: health,
+            ReturnData: false,
+            MetricStat:
+              {
+                Period: 300,
+                Stat: Sum,
+                Metric:
+                  {
+                    Namespace: AWS/Lambda,
+                    MetricName: Errors,
+                    Dimensions: [{ Name: FunctionName, Value: !Ref HealthFunction }],
+                  },
+              },
+          }
+        - {
+            Id: presign,
+            ReturnData: false,
+            MetricStat:
+              {
+                Period: 300,
+                Stat: Sum,
+                Metric:
+                  {
+                    Namespace: AWS/Lambda,
+                    MetricName: Errors,
+                    Dimensions: [{ Name: FunctionName, Value: !Ref PresignFunction }],
+                  },
+              },
+          }
+        - {
+            Id: session,
+            ReturnData: false,
+            MetricStat:
+              {
+                Period: 300,
+                Stat: Sum,
+                Metric:
+                  {
+                    Namespace: AWS/Lambda,
+                    MetricName: Errors,
+                    Dimensions: [{ Name: FunctionName, Value: !Ref SessionFunction }],
+                  },
+              },
+          }
+        - {
+            Id: event,
+            ReturnData: false,
+            MetricStat:
+              {
+                Period: 300,
+                Stat: Sum,
+                Metric:
+                  {
+                    Namespace: AWS/Lambda,
+                    MetricName: Errors,
+                    Dimensions: [{ Name: FunctionName, Value: !Ref EventFunction }],
+                  },
+              },
+          }
+        - {
+            Id: validate,
+            ReturnData: false,
+            MetricStat:
+              {
+                Period: 300,
+                Stat: Sum,
+                Metric:
+                  {
+                    Namespace: AWS/Lambda,
+                    MetricName: Errors,
+                    Dimensions: [{ Name: FunctionName, Value: !Ref ValidateFunction }],
+                  },
+              },
+          }
+
+  LambdaThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-${Stage}-lambda-throttles
+      AlarmDescription: Lambdas hit their reserved concurrency (flood, or a rush bigger than planned).
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Threshold: 10
+      EvaluationPeriods: 1
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+      Metrics:
+        - Id: total
+          Expression: SUM(METRICS())
+          Label: Throttles across all functions
+        - {
+            Id: presign,
+            ReturnData: false,
+            MetricStat:
+              {
+                Period: 300,
+                Stat: Sum,
+                Metric:
+                  {
+                    Namespace: AWS/Lambda,
+                    MetricName: Throttles,
+                    Dimensions: [{ Name: FunctionName, Value: !Ref PresignFunction }],
+                  },
+              },
+          }
+        - {
+            Id: session,
+            ReturnData: false,
+            MetricStat:
+              {
+                Period: 300,
+                Stat: Sum,
+                Metric:
+                  {
+                    Namespace: AWS/Lambda,
+                    MetricName: Throttles,
+                    Dimensions: [{ Name: FunctionName, Value: !Ref SessionFunction }],
+                  },
+              },
+          }
+        - {
+            Id: validate,
+            ReturnData: false,
+            MetricStat:
+              {
+                Period: 300,
+                Stat: Sum,
+                Metric:
+                  {
+                    Namespace: AWS/Lambda,
+                    MetricName: Throttles,
+                    Dimensions: [{ Name: FunctionName, Value: !Ref ValidateFunction }],
+                  },
+              },
+          }
+
+  ApiServerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-${Stage}-api-5xx
+      AlarmDescription: The API returned 5xx responses (guests see failed uploads).
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions: [{ Name: ApiId, Value: !Ref HttpApi }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  PresignSpikeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-${Stage}-presign-spike
+      AlarmDescription: >-
+        Unusually many upload requests in 5 minutes (a real rush is ~1-2k; more suggests a script).
+      Namespace: AWS/Lambda
+      MetricName: Invocations
+      Dimensions: [{ Name: FunctionName, Value: !Ref PresignFunction }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  UploadsRejectedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-${Stage}-uploads-rejected
+      AlarmDescription: Several non-media files were uploaded and deleted (someone probing?).
+      Namespace: !Sub ${Prefix}/${Stage}
+      MetricName: UploadsRejected
+      Statistic: Sum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  QuotaExceededAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-${Stage}-quota-exceeded
+      AlarmDescription: Many uploads refused by quotas (abuse, or limits too low for real guests).
+      Namespace: !Sub ${Prefix}/${Stage}
+      MetricName: QuotaExceeded
+      Statistic: Sum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 25
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  TurnstileFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Prefix}-${Stage}-turnstile-failed
+      AlarmDescription: Many failed human verifications (a bot, or Turnstile misconfigured).
+      Namespace: !Sub ${Prefix}/${Stage}
+      MetricName: TurnstileFailed
+      Statistic: Sum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 25
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  # Account-wide monthly cost budget (emails directly; no SNS policy needed).
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: CreateBudget
+    Properties:
+      Budget:
+        BudgetName: !Sub ${Prefix}-account-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: 15, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification:
+            {
+              NotificationType: ACTUAL,
+              ComparisonOperator: GREATER_THAN,
+              Threshold: 5,
+              ThresholdType: ABSOLUTE_VALUE,
+            }
+          Subscribers:
+            [{ SubscriptionType: EMAIL, Address: !Sub '{{resolve:ssm:/${Prefix}/alert_email}}' }]
+        - Notification:
+            {
+              NotificationType: ACTUAL,
+              ComparisonOperator: GREATER_THAN,
+              Threshold: 15,
+              ThresholdType: ABSOLUTE_VALUE,
+            }
+          Subscribers:
+            [{ SubscriptionType: EMAIL, Address: !Sub '{{resolve:ssm:/${Prefix}/alert_email}}' }]
+        - Notification:
+            {
+              NotificationType: FORECASTED,
+              ComparisonOperator: GREATER_THAN,
+              Threshold: 15,
+              ThresholdType: ABSOLUTE_VALUE,
+            }
+          Subscribers:
+            [{ SubscriptionType: EMAIL, Address: !Sub '{{resolve:ssm:/${Prefix}/alert_email}}' }]
+
+Outputs:
+  ApiUrl:
+    Description: Direct base URL of the HTTP API (guests use SiteUrl; CloudFront proxies /api/*).
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  HealthUrl:
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/api/health
+  SiteUrl:
+    Description: Public URL of the upload page.
+    Value: !Sub https://${Distribution.DomainName}
+  SiteBucketName:
+    Value: !Ref SiteBucket
+  DistributionId:
+    Value: !Ref Distribution
+  AlertsTopicArn:
+    Value: !Ref AlertsTopic

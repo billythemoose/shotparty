@@ -1,0 +1,13 @@
+{
+  "name": "shotparty",
+  "build": { "dockerfile": "Dockerfile" },
+  // Your AWS login (profiles and SSO cache) from the host, so `npm run setup` works inside.
+  "mounts": ["source=${localEnv:HOME}/.aws,target=/home/node/.aws,type=bind"],
+  "forwardPorts": [5173, 8787],
+  "postCreateCommand": "npm ci && npx playwright install --with-deps chromium",
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "ms-playwright.playwright"]
+    }
+  }
+}

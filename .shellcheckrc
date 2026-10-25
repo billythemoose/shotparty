@@ -1,0 +1,4 @@
+# Resolve "# shellcheck source=" hints relative to the script (scripts/lib.sh is sourced via $ROOT).
+source-path=SCRIPTDIR
+# PROFILE, REGION, PREFIX, ... are assigned by eval in lib.sh (load_config), which shellcheck cannot see.
+disable=SC2153

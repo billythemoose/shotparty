@@ -1,0 +1,21 @@
+.aws-sam/
+.DS_Store
+.env
+.env.*
+*.log
+coverage/
+dist/
+node_modules/
+samconfig.toml
+samconfig.local.toml
+shotparty.config.json
+qr-codes/
+galleries/
+photos/
+test-results/
+playwright-report/
+.identifiers.local
+.claude/worktrees/
+# Private build notes: kept locally, never published
+CLAUDE.md
+docs/DEVELOPMENT_PLAN.md

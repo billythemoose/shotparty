@@ -1,0 +1,111 @@
+# shotparty: the AWS architecture of one stage (dev or prod).
+# Source of docs/diagrams/architecture-{light,dark}.svg. Re-render with `npm run diagrams`.
+# Icons: AWS Architecture Icons via icons.terrastruct.com (embedded into the SVG at render time).
+
+direction: down
+
+classes: {
+  svc: {
+    shape: rectangle
+    icon.near: top-center
+    label.near: bottom-center
+    height: 130
+    style.border-radius: 6
+    style.font-size: 15
+  }
+  stack: {
+    style.border-radius: 8
+    style.stroke-dash: 0
+    style.font-size: 18
+  }
+}
+
+guest: "Guest's phone\n(browser)" {
+  class: svc
+  icon: https://icons.terrastruct.com/aws%2F_General%2FMobile-client_light-bg.svg
+  # A fixed light fill: the icon is black, so it needs a light box in the dark theme too.
+  style.fill: "#f4f4f8"
+  style.font-color: "#1f1f2e"
+}
+
+turnstile: "Cloudflare\nTurnstile" {
+  shape: rectangle
+  style.border-radius: 8
+  style.stroke-dash: 4
+}
+
+app: "App stack  ·  <prefix>-<stage>-app  ·  safe to redeploy or delete" {
+  class: stack
+
+  waf: "WAF (Free plan)\nIP rate limit +\nmanaged rules" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FSecurity%2C%20Identity%2C%20%26%20Compliance%2FAWS-WAF.svg
+  }
+  cf: "CloudFront\n+ 2 viewer functions" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FNetworking%20%26%20Content%20Delivery%2FAmazon-CloudFront.svg
+  }
+  site: "Site bucket\n(private, OAC)" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FStorage%2FAmazon-Simple-Storage-Service-S3.svg
+  }
+  api: "HTTP API\n50 rps, burst 100" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FNetworking%20%26%20Content%20Delivery%2FAmazon-API-Gateway.svg
+  }
+  fns: "event · session · presign\nLambdas" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FCompute%2FAWS-Lambda.svg
+  }
+  rule: "EventBridge rule\nObject Created, uploads/" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FApplication%20Integration%2FAmazon-EventBridge.svg
+  }
+  validate: "validate\nLambda" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FCompute%2FAWS-Lambda.svg
+  }
+  cw: "CloudWatch\n7 alarms" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FManagement%20%26%20Governance%2FAmazon-CloudWatch.svg
+  }
+  sns: "SNS\nemail" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FApplication%20Integration%2FAmazon-Simple-Notification-Service-SNS.svg
+  }
+
+  waf -> cf: {style.stroke-dash: 3}
+  cf -> site: "/*"
+  cf -> api: "/api/*"
+  api -> fns
+  rule -> validate
+  cw -> sns
+}
+
+data: "Data stack  ·  <prefix>-<stage>-data  ·  retained, never replaced" {
+  class: stack
+
+  media: "Media bucket\nuploads/ → accepted/" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FStorage%2FAmazon-Simple-Storage-Service-S3.svg
+  }
+  table: "DynamoDB\nsingle table" {
+    class: svc
+    icon: https://icons.terrastruct.com/aws%2FDatabase%2FAmazon-DynamoDB.svg
+  }
+}
+
+ssm: "SSM Parameter Store\nsecrets · kill switch · stack wiring" {
+  class: svc
+  icon: https://icons.terrastruct.com/aws%2FManagement%20%26%20Governance%2FAWS-Systems-Manager.svg
+}
+
+guest -> app.cf: "1, 3 HTTPS"
+guest -> turnstile: "2 human check" {style.stroke-dash: 3}
+app.fns -> turnstile: "siteverify" {style.stroke-dash: 3}
+app.fns -> data.table: "events, sessions,\nquota counters"
+app.fns -> ssm: "secrets,\nkill switch"
+guest -> data.media: "4 presigned POST\n(file bytes)" {style.stroke-width: 4}
+data.media -> app.rule: "Object Created"
+app.validate -> data.media: "5 accept or delete"
+app.validate -> data.table: "claims"

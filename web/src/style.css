@@ -1,0 +1,293 @@
+:root {
+  /* Neutral theme; the event's accent (display.ts) overrides --accent/--accent-fg per scheme. */
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --fg: #1d1d20;
+  --muted: #64646d;
+  --line: #e2e2e7;
+  --accent: var(--event-accent-light, #3d5bd9);
+  --accent-fg: var(--event-accent-fg-light, #ffffff);
+  --ok: #2f7a4f;
+  --err: #b3413a;
+  --radius: 14px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141416;
+    --surface: #1e1e21;
+    --fg: #f1f1f3;
+    --muted: #a0a0aa;
+    --line: #313136;
+    --accent: var(--event-accent-dark, #8da2ff);
+    --accent-fg: var(--event-accent-fg-dark, #111113);
+    --ok: #7fc79a;
+    --err: #f0a39c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Author display rules (e.g. .field { display: grid }) would otherwise override the hidden
+   attribute: the PIN field showed on a no-PIN event until this rule existed. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    17px/1.5 system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+main {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: max(2rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom));
+}
+
+header {
+  text-align: center;
+  margin-bottom: 1.75rem;
+}
+
+.eyebrow {
+  margin: 0;
+  min-height: 1.5em; /* reserved before the event name loads, so the header doesn't jump */
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+h1 {
+  margin: 0.25rem 0 0.5rem;
+  font-weight: 700;
+  font-size: 2.1rem;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere; /* long organizer-provided headlines wrap instead of overflowing */
+}
+
+.lede {
+  margin: 0;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
+.field input {
+  font: inherit;
+  font-size: 1rem; /* ≥16px stops iOS zooming on focus */
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.picker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 3.75rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+  font-size: 1.1rem;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.picker:active {
+  transform: scale(0.99);
+  filter: brightness(0.95);
+}
+
+.picker-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+#files:focus-visible + .picker {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.progress {
+  margin-top: 1.5rem;
+}
+
+.summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  font-weight: 600;
+}
+
+button.link {
+  font: inherit;
+  font-weight: 600;
+  background: none;
+  border: 0;
+  padding: 0.25rem 0;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.bar > div {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.progress > .bar {
+  margin: 0.5rem 0;
+  height: 8px;
+}
+
+.hint {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.thanks {
+  margin: 0.75rem 0;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ok);
+  font-weight: 600;
+  text-align: center;
+}
+
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  /* minmax(0, …): a long file name truncates instead of widening the tiles past the screen. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.file {
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.file .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+.file .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.file .state {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.file.done .state {
+  color: var(--ok);
+}
+
+.file.done .bar > div {
+  background: var(--ok);
+}
+
+.file.skipped .bar {
+  visibility: hidden;
+}
+
+.file.failed .state {
+  color: var(--err);
+}
+
+.file.failed .bar > div {
+  background: var(--err);
+  width: 100% !important;
+  opacity: 0.35;
+}
+
+footer {
+  margin-top: 2.5rem;
+  text-align: center;
+  font-size: 0.75rem;
+}
+
+.notice {
+  margin: 1rem 0;
+  padding: 1.25rem 1rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  text-align: center;
+  font-size: 1.05rem;
+}
+
+.turnstile:not(:empty) {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.75rem;
+}

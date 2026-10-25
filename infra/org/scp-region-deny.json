@@ -1,0 +1,60 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyAllOutsideUsEast1",
+      "Effect": "Deny",
+      "NotAction": [
+        "a4b:*",
+        "access-analyzer:*",
+        "account:*",
+        "acm:*",
+        "aws-marketplace-management:*",
+        "aws-marketplace:*",
+        "aws-portal:*",
+        "billing:*",
+        "budgets:*",
+        "ce:*",
+        "cloudfront:*",
+        "cloudfront-keyvaluestore:*",
+        "config:*",
+        "cur:*",
+        "directconnect:*",
+        "ec2:DescribeRegions",
+        "fms:*",
+        "freetier:*",
+        "globalaccelerator:*",
+        "health:*",
+        "iam:*",
+        "importexport:*",
+        "kms:*",
+        "networkmanager:*",
+        "organizations:*",
+        "payments:*",
+        "pricing:*",
+        "route53:*",
+        "route53domains:*",
+        "s3:GetAccountPublic*",
+        "s3:ListAllMyBuckets",
+        "s3:ListMultiRegionAccessPoints",
+        "s3:PutAccountPublic*",
+        "shield:*",
+        "sso:*",
+        "sts:*",
+        "support:*",
+        "tax:*",
+        "trustedadvisor:*",
+        "waf-regional:*",
+        "waf:*",
+        "wafv2:*",
+        "wellarchitected:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": ["us-east-1"]
+        }
+      }
+    }
+  ]
+}

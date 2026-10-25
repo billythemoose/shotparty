@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  shotparty data stack: long-lived media bucket + DynamoDB table. Changed rarely; protected by
+  Retain policies, termination protection, and a stack policy (see stack-policy.json).
+  RULES: never hard-code BucketName/TableName and never edit replacement-forcing properties
+  (e.g. table KeySchema). Always review the change set for "Replacement: True".
+
+Parameters:
+  Stage:
+    Type: String
+    AllowedValues: [dev, prod]
+    Description: Deployment stage; namespaces SSM parameters and tags.
+  Prefix:
+    Type: String
+    Default: shotparty
+    AllowedPattern: '^[a-z][a-z0-9-]{1,20}[a-z0-9]$'
+    Description: >-
+      Name prefix for SSM parameters (/<Prefix>/<Stage>/...), resource names and tags. Must match
+      the stack name prefix; set from shotparty.config.json (aws.prefix) by scripts/deploy.sh.
+  AllowedOrigins:
+    Type: CommaDelimitedList
+    Description: >-
+      Browser origins allowed to POST uploads directly to the media bucket (the site's CloudFront
+      URL, plus http://localhost:5173 for local dev on the dev stage). Changing it is an in-place update.
+
+  ArchiveAfterDays:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: >-
+      Move accepted/ media to S3 Glacier Instant Retrieval this many days after upload (0 = off).
+      ~80% cheaper storage, still instantly downloadable (small per-GB retrieval fee; 90-day minimum
+      storage charge). Turn on after the event once the photos are downloaded.
+
+Conditions:
+  ArchiveEnabled: !Not [!Equals [!Ref ArchiveAfterDays, 0]]
+
+Resources:
+  # Guest uploads land under uploads/, validated files move to accepted/.
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-noncurrent-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+          - Id: abort-incomplete-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: remove-expired-delete-markers
+            Status: Enabled
+            ExpiredObjectDeleteMarker: true
+          - !If
+            - ArchiveEnabled
+            - Id: archive-accepted
+              Status: Enabled
+              Prefix: accepted/
+              Transitions:
+                - StorageClass: GLACIER_IR
+                  TransitionInDays: !Ref ArchiveAfterDays
+            - !Ref AWS::NoValue
+      # Browsers upload straight to S3 with a presigned POST, so the page's origin must be allowed.
+      CorsConfiguration:
+        CorsRules:
+          - Id: browser-uploads
+            AllowedMethods: [POST]
+            AllowedOrigins: !Ref AllowedOrigins
+            AllowedHeaders: ['*']
+            MaxAge: 3600
+      # Object events go to EventBridge so the app stack can subscribe
+      # without a circular dependency between the two stacks.
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+      Tags:
+        - Key: project
+          Value: !Ref Prefix
+        - Key: stage
+          Value: !Ref Stage
+
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt MediaBucket.Arn
+              - !Sub '${MediaBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  # Single-table design: events, sessions, quota counters, flags (Stages 8-10).
+  DataTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: project
+          Value: !Ref Prefix
+        - Key: stage
+          Value: !Ref Stage
+
+  # SSM parameters are how the app stack finds these resources (instead of Export/ImportValue,
+  # which would lock both stacks).
+  MediaBucketNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${Prefix}/${Stage}/mediaBucketName
+      Type: String
+      Value: !Ref MediaBucket
+
+  MediaBucketArnParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${Prefix}/${Stage}/mediaBucketArn
+      Type: String
+      Value: !GetAtt MediaBucket.Arn
+
+  DataTableNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${Prefix}/${Stage}/tableName
+      Type: String
+      Value: !Ref DataTable
+
+  DataTableArnParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${Prefix}/${Stage}/tableArn
+      Type: String
+      Value: !GetAtt DataTable.Arn
+
+Outputs:
+  MediaBucketName:
+    Value: !Ref MediaBucket
+  MediaBucketArn:
+    Value: !GetAtt MediaBucket.Arn
+  DataTableName:
+    Value: !Ref DataTable
+  DataTableArn:
+    Value: !GetAtt DataTable.Arn

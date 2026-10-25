@@ -1,0 +1,210 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "shotparty.config.schema.json",
+  "title": "shotparty configuration",
+  "description": "Every value a self-hoster provides. Copy shotparty.config.example.json to shotparty.config.json (git-ignored) and edit it. Secrets never go here: they are generated into, or prompted into, SSM.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["stages"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "aws": {
+      "description": "Where to deploy.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "description": "AWS CLI profile the scripts use (e.g. an SSO profile). The SHOTPARTY_PROFILE env var overrides it for a one-off run, which then asks you to type the account ID back.",
+          "type": "string",
+          "minLength": 1,
+          "default": "shotparty"
+        },
+        "region": {
+          "description": "AWS region for the stacks. Only us-east-1 has been tested end to end.",
+          "type": "string",
+          "pattern": "^[a-z]{2}(-[a-z]+)+-\\d$",
+          "default": "us-east-1"
+        },
+        "prefix": {
+          "description": "Name prefix for stacks (<prefix>-<stage>-data/app), SSM parameters (/<prefix>/<stage>/...), alarms and log groups. Changing it on a live install creates NEW stacks; it never renames existing ones.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,20}[a-z0-9]$",
+          "default": "shotparty"
+        }
+      }
+    },
+    "alerts": {
+      "description": "Alarm and budget notifications.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "description": "Where alarms and budget alerts are emailed (stored in SSM, never in the templates). AWS sends a confirmation email you must click once. If omitted, bootstrap-secrets.sh asks for it.",
+          "type": "string",
+          "format": "email"
+        }
+      }
+    },
+    "cloudflare": {
+      "description": "Lets npm run setup manage the Turnstile widget through the Cloudflare API: it creates the widget (or reuses the one named after aws.prefix), adds each stage's site hostname, writes the site key into this file and the secret straight into SSM. Needs the CLOUDFLARE_API_TOKEN env var (an API token with Account > Turnstile > Edit); the token never goes in this file. Without this section, enter the keys by hand.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accountId"],
+      "properties": {
+        "accountId": {
+          "description": "Cloudflare account ID (dash.cloudflare.com: the 32-character hex string in the URL, or Account home -> Account details). Not a secret.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      }
+    },
+    "stages": {
+      "description": "The stages to deploy. dev is optional (for testing changes); prod serves real guests.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "dev": {
+          "$ref": "#/definitions/stage"
+        },
+        "prod": {
+          "$ref": "#/definitions/stage"
+        }
+      }
+    },
+    "uploads": {
+      "description": "Upload limits for every stage. RAW photos run 20-100 MB each, so raise the session limits for an event with keen photographers. Applied by npm run setup (or scripts/deploy.sh app <stage>). An event can still override the session limits with event:create or event:update.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxFileGb": {
+          "description": "Largest single file, in GiB. Each file is one upload request, so a big video on a weak connection may never finish; S3 caps a single upload at 5 GiB.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 5,
+          "default": 1
+        },
+        "sessionFiles": {
+          "description": "Files one guest may upload in a 12-hour session, for events that don't set their own limit.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 500
+        },
+        "sessionGb": {
+          "description": "GiB one guest may upload in a 12-hour session, for events that don't set their own limit. At least maxFileGb.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 10
+        }
+      }
+    },
+    "events": {
+      "description": "Events to create with npm run event:create -- --stage <stage> --from-config <eventId>. Command-line flags override these values. Creating an event never changes this file.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/event"
+      }
+    },
+    "download": {
+      "description": "Defaults for npm run download.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "outDir": {
+          "description": "Local folder the photos are downloaded into (git-ignored when it is photos/).",
+          "type": "string",
+          "minLength": 1,
+          "default": "photos"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "turnstileSiteKey": {
+          "description": "Public Cloudflare Turnstile site key (dash.cloudflare.com -> Turnstile). The always-pass test key 1x00000000000000000000BB is fine for dev. Leave it out when the cloudflare section is set: setup creates the widget and fills this in. The secret key goes to SSM (setup or scripts/bootstrap-secrets.sh).",
+          "type": "string",
+          "minLength": 1
+        },
+        "accountBudget": {
+          "description": "Create the account-wide monthly cost budget in this stage's stack. Budgets are per account, so set this on exactly one stage.",
+          "type": "boolean",
+          "default": false
+        },
+        "archiveAfterDays": {
+          "description": "Move accepted photos to S3 Glacier Instant Retrieval this many days after upload (0 = off). ~80% cheaper storage, still instantly downloadable. Turn on after the event, once the photos are downloaded.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "localDev": {
+          "description": "Also allow http://localhost:5173 (npm start) as an upload origin and Turnstile hostname. Defaults to true on dev, false on prod.",
+          "type": "boolean"
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "eventId"],
+      "properties": {
+        "name": {
+          "description": "Shown at the top of the guest page, e.g. \"Summer Party\".",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "eventId": {
+          "description": "The S3 folder for this event's uploads and how commands find it, e.g. \"summer-party-2026\". Lowercase letters, digits and dashes; must be unused.",
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "maxLength": 64
+        },
+        "stage": {
+          "description": "The stage npm run setup creates this event in. Default: prod (or dev when only dev is defined).",
+          "enum": ["dev", "prod"]
+        },
+        "openFrom": {
+          "description": "When uploads open, with a UTC offset, e.g. \"2026-10-17T08:00:00-07:00\". Default: now.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "openUntil": {
+          "description": "When uploads close, with a UTC offset. Default: 60 days after openFrom.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "pin": {
+          "description": "\"generate\" prints a 6-digit PIN to put on the card next to the QR code; \"none\" (default) needs only the QR code.",
+          "enum": ["none", "generate"],
+          "default": "none"
+        },
+        "headline": {
+          "description": "Big title on the guest page. Default: \"Share your photos\".",
+          "type": "string",
+          "maxLength": 80
+        },
+        "welcome": {
+          "description": "Line under the headline. Default: \"Add your photos and videos. Full quality, no app needed.\"",
+          "type": "string",
+          "maxLength": 240
+        },
+        "thanks": {
+          "description": "Shown when uploads finish. Default: \"Thank you!\"",
+          "type": "string",
+          "maxLength": 240
+        },
+        "accentColor": {
+          "description": "Color of buttons and highlights, as #rrggbb. Adjusted automatically if needed so it stays readable in light and dark mode.",
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        }
+      }
+    }
+  }
+}
