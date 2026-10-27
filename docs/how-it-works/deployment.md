@@ -118,7 +118,9 @@ it to the app stack as `WebAclArn`, so later deploys keep the association instea
 away ([template.yaml:411](../../infra/app/template.yaml#L411)).
 
 A distribution on the plan can't be deleted until the plan is canceled, so `delete-app.sh` and
-`teardown` check for it and stop with instructions.
+`teardown` check for it and stop with instructions. Canceling the plan leaves its
+`CreatedByCloudFront-…` web ACL behind, outside any stack, so both scripts delete it once the
+distribution is gone.
 
 ## Deleting things
 
@@ -127,8 +129,9 @@ A distribution on the plan can't be deleted until the plan is canceled, so `dele
   CloudFront domain**: never do this to prod while printed cards are in use.
 - `npm run teardown -- <stage>` removes the whole stage, photos included, after you type
   `destroy <stage>`. It has to lift the protections above one by one, which is the point: deleting
-  the data takes a deliberate command, never a side effect. With `--keep-data` it runs
-  `delete-app.sh` instead.
+  the data takes a deliberate command, never a side effect. It also deletes the stage's SSM
+  secrets, plus the shared `alert_email` once the other stage has no stacks left. With
+  `--keep-data` it runs `delete-app.sh` instead, which keeps the secrets for the next deploy.
 
 ## AWS references
 

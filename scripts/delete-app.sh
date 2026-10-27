@@ -25,6 +25,7 @@ BUCKET="$(aws cloudformation describe-stacks --stack-name "$STACK" \
 DIST="$(aws cloudformation describe-stacks --stack-name "$STACK" \
   --profile "$PROFILE" --region "$REGION" \
   --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" --output text 2>/dev/null || true)"
+PLAN_ACL="$(plan_web_acl "$PROFILE" "$DIST")"
 confirm_no_pricing_plan "$PROFILE" "$DIST"
 
 if [[ -n "$BUCKET" && "$BUCKET" != "None" ]]; then
@@ -34,3 +35,9 @@ fi
 
 echo "==> Deleting $STACK (sam will ask for confirmation)"
 sam delete --stack-name "$STACK" --region "$REGION" --profile "$PROFILE"
+
+# The plan's web ACL can only go once the distribution has (sam delete may have been declined).
+if ! aws cloudformation describe-stacks --stack-name "$STACK" \
+  --profile "$PROFILE" --region "$REGION" >/dev/null 2>&1; then
+  delete_plan_web_acl "$PROFILE" "$PLAN_ACL"
+fi

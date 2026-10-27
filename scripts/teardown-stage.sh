@@ -30,10 +30,12 @@ data_output() {
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text
 }
 
-# 1. App stack (site bucket emptied first; a flat-rate plan must be canceled first).
+# 1. App stack (site bucket emptied first; a flat-rate plan must be canceled first, and its web ACL
+#    is deleted after the distribution).
 if stack_exists "$APP_STACK"; then
   DIST="$(aws_ cloudformation describe-stacks --stack-name "$APP_STACK" \
     --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" --output text)"
+  PLAN_ACL="$(plan_web_acl "$PROFILE" "$DIST")"
   confirm_no_pricing_plan "$PROFILE" "$DIST"
   SITE_BUCKET="$(aws_ cloudformation describe-stacks --stack-name "$APP_STACK" \
     --query "Stacks[0].Outputs[?OutputKey=='SiteBucketName'].OutputValue" --output text)"
@@ -44,6 +46,7 @@ if stack_exists "$APP_STACK"; then
   echo "==> Deleting $APP_STACK"
   aws_ cloudformation delete-stack --stack-name "$APP_STACK"
   aws_ cloudformation wait stack-delete-complete --stack-name "$APP_STACK"
+  delete_plan_web_acl "$PROFILE" "$PLAN_ACL"
 fi
 
 # 2. Data stack. Bucket and table are Retain, so they survive the stack and are removed below.
@@ -84,6 +87,20 @@ if [[ -n "$TABLE" ]] && aws_ dynamodb describe-table --table-name "$TABLE" >/dev
   aws_ dynamodb update-table --table-name "$TABLE" --no-deletion-protection-enabled >/dev/null
   aws_ dynamodb wait table-exists --table-name "$TABLE"
   aws_ dynamodb delete-table --table-name "$TABLE" >/dev/null
+fi
+
+# 5. Secrets from bootstrap-secrets.sh, which no stack owns. alert_email is shared by both stages,
+#    so it goes only once the other stage has no stacks left.
+for name in $(aws_ ssm get-parameters-by-path --path "/$PREFIX/$STAGE" --recursive \
+  --query 'Parameters[].Name' --output text); do
+  echo "==> Deleting parameter $name"
+  aws_ ssm delete-parameter --name "$name"
+done
+OTHER_STAGE="$([[ "$STAGE" == "prod" ]] && echo dev || echo prod)"
+if ! stack_exists "${PREFIX}-${OTHER_STAGE}-app" && ! stack_exists "${PREFIX}-${OTHER_STAGE}-data" \
+  && aws_ ssm get-parameter --name "/$PREFIX/alert_email" >/dev/null 2>&1; then
+  echo "==> Deleting parameter /$PREFIX/alert_email (no other stage left)"
+  aws_ ssm delete-parameter --name "/$PREFIX/alert_email"
 fi
 
 echo "==> Stage '$STAGE' removed from this account."

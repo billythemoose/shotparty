@@ -36,11 +36,8 @@ confirm_target_account() {
 # A distribution on a CloudFront flat-rate plan (Stage 11) can't be deleted until the plan is
 # canceled in the console; the plan's web ACL is named "CreatedByCloudFront-…". Warn and ask.
 confirm_no_pricing_plan() {
-  local profile="$1" dist="$2" acl answer
-  [[ -z "$dist" || "$dist" == "None" ]] && return 0
-  acl="$(aws cloudfront get-distribution-config --id "$dist" --profile "$profile" \
-    --query 'DistributionConfig.WebACLId' --output text 2>/dev/null || true)"
-  [[ "$acl" == *CreatedByCloudFront-* ]] || return 0
+  local profile="$1" dist="$2" answer
+  [[ -n "$(plan_web_acl "$profile" "$dist")" ]] || return 0
   cat <<MSG
 ==> Distribution $dist is on a CloudFront flat-rate (Free) plan. CloudFront refuses to delete it
     until the plan is canceled: CloudFront console -> Distributions -> $dist -> Pricing plan ->
@@ -52,4 +49,33 @@ confirm_no_pricing_plan() {
 MSG
   read -r -p "    Is the pricing plan canceled? [y/N] " answer
   [[ "$answer" == "y" ]] || { echo "Aborted." >&2; exit 1; }
+}
+
+# Prints the ARN of the flat-rate plan's web ACL on a distribution, or nothing if it has none.
+plan_web_acl() {
+  local profile="$1" dist="$2" acl
+  [[ -z "$dist" || "$dist" == "None" ]] && return 0
+  acl="$(aws cloudfront get-distribution-config --id "$dist" --profile "$profile" \
+    --query 'DistributionConfig.WebACLId' --output text 2>/dev/null || true)"
+  [[ "$acl" == *CreatedByCloudFront-* ]] && echo "$acl"
+  return 0
+}
+
+# Deletes the plan's web ACL (from plan_web_acl) once its distribution is gone. Canceling the plan
+# leaves the web ACL behind, outside any stack, where it may be billed as a standard web ACL.
+delete_plan_web_acl() {
+  local profile="$1" arn="$2" rest name id token
+  [[ -n "$arn" ]] || return 0
+  rest="${arn#*/webacl/}"
+  name="${rest%%/*}"
+  id="${rest#*/}"
+  # CLOUDFRONT-scoped web ACLs live in us-east-1, whatever the stack region.
+  token="$(aws wafv2 get-web-acl --scope CLOUDFRONT --name "$name" --id "$id" \
+    --profile "$profile" --region us-east-1 --query LockToken --output text 2>/dev/null)" || {
+    echo "==> Web ACL $name already deleted"
+    return 0
+  }
+  echo "==> Deleting the plan's web ACL $name"
+  aws wafv2 delete-web-acl --scope CLOUDFRONT --name "$name" --id "$id" --lock-token "$token" \
+    --profile "$profile" --region us-east-1
 }

@@ -85,7 +85,7 @@ Templates are **AWS SAM** (`infra/*/template.yaml`): plain CloudFormation plus t
   - Add new indexes and lifecycle rules as in-place updates.
   - Review every change set for `Replacement: True` before executing it (`scripts/changeset-guard.ts`).
 - **Secrets** are SSM SecureStrings, created outside CloudFormation (which can't create them) and read by the Lambdas at cold start. This is free, where Secrets Manager costs $0.40 per secret per month.
-- **CloudFront Free plan:** the distribution sets no `PriceClass` (the plan rejects it), and its web ACL is attached through the app stack parameter `WebAclArn`, so redeploys don't drop it through drift. The plan must be canceled in the console before the distribution can be deleted; the teardown scripts check for this.
+- **CloudFront Free plan:** the distribution sets no `PriceClass` (the plan rejects it), and its web ACL is attached through the app stack parameter `WebAclArn`, so redeploys don't drop it through drift. The plan must be canceled in the console before the distribution can be deleted; the teardown scripts check for this, then delete the plan's leftover web ACL.
 - **Lambda concurrency:** reserved concurrency totals 205 per stage, and Lambda keeps 100 unreserved, so the account's concurrent-executions quota must be raised above the new-account default (Service Quotas).
 - **Account setup** (single account, or a hardened member account with a region-deny SCP) is in [aws-setup.md](aws-setup.md).
 
