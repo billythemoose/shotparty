@@ -41,9 +41,9 @@ flowchart TB
 
 | #   | Layer                          | Limits                                                                                 | Where                                                                      |
 | --- | ------------------------------ | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| 1   | WAF (CloudFront Free plan)     | 3,000 requests per IP per 5 minutes; AWS IP-reputation, Common and Known-bad-inputs rules | Configured in the plan, attached by `WebAclArn` ([template.yaml:411](../../infra/app/template.yaml#L411)) |
-| 2   | CloudFront Function            | Adds `x-viewer-ip` and the `x-origin-verify` secret; overwrites what the guest sent     | [template.yaml:386](../../infra/app/template.yaml#L386)                    |
-| 3   | API Gateway throttle           | 50 requests per second, burst 100, **per route, for everyone together**               | [template.yaml:102](../../infra/app/template.yaml#L102)                    |
+| 1   | WAF (CloudFront Free plan)     | 3,000 requests per IP per 5 minutes; AWS IP-reputation, Common and Known-bad-inputs rules | Configured in the plan, attached by `WebAclArn` ([template.yaml:403](../../infra/app/template.yaml#L403)) |
+| 2   | CloudFront Function            | Adds `x-viewer-ip` and the `x-origin-verify` secret; overwrites what the guest sent     | [template.yaml:378](../../infra/app/template.yaml#L378)                    |
+| 3   | API Gateway throttle           | 50 requests per second, burst 100, **per route, for everyone together**               | [template.yaml:94](../../infra/app/template.yaml#L94)                    |
 | 4   | Reserved concurrency           | presign 100, validate 50, session 25, event 25, health 5 at once                      | `ReservedConcurrentExecutions` on each function                           |
 | 5   | Origin check                   | `403` for any call that didn't come through CloudFront                                 | [origin-guard.ts:12](../../api/src/lib/origin-guard.ts#L12)                |
 | 6   | Gate                           | Kill switch, a 128-bit token, the upload window and an optional PIN                   | [gate.ts:30](../../api/src/lib/gate.ts#L30)                                |
@@ -101,7 +101,7 @@ video.
 With every cap hit at once, the event counter stops presigns at 20,000 files or 100 GiB. S3 doesn't
 charge for inbound data, so filling the cap costs about **$2.30 a month** in S3 Standard storage
 until the junk is deleted. Requests and compute are capped by the throttle and concurrency, and
-the budget alarm emails at $5 and $15.
+the account budget emails at a third of its limit and at the limit ($20 a month by default).
 
 The realistic risk is nuisance, not cost: someone with a card can upload real but unwanted photos.
 The organizer handles that with the gallery, the kill switch and the per-session folders.

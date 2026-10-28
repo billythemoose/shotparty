@@ -2,7 +2,7 @@
  * @fileoverview Used by scripts/deploy.sh for unattended deploys: exits 1 (and explains) when the
  * change set would replace or delete protected resources (see scripts/lib/changeset-guard.ts).
  *
- *   tsx scripts/changeset-guard.ts <data|app> <change-set-arn>
+ *   tsx scripts/changeset-guard.ts <data|app|account> <change-set-arn>
  */
 import {
   CloudFormationClient,
@@ -13,8 +13,8 @@ import { awsProfile, loadConfigOrExit } from './lib/config.js';
 import { type ResourceChange, riskyChanges } from './lib/changeset-guard.js';
 
 const [kind, arn] = process.argv.slice(2);
-if ((kind !== 'data' && kind !== 'app') || !arn) {
-  console.error('usage: changeset-guard.ts <data|app> <change-set-arn>');
+if ((kind !== 'data' && kind !== 'app' && kind !== 'account') || !arn) {
+  console.error('usage: changeset-guard.ts <data|app|account> <change-set-arn>');
   process.exit(2);
 }
 

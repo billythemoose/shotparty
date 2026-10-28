@@ -29,8 +29,7 @@ function problems(raw: unknown): string[] {
 describe('parseConfig', () => {
   it('accepts the checked-in example', () => {
     const config = loadConfig(join(REPO_ROOT, 'shotparty.config.example.json'));
-    expect(config.stages.dev?.accountBudget).toBe(true);
-    expect(config.stages.prod?.accountBudget).toBe(false);
+    expect(config.budgets.accountMonthlyUsd).toBe(20);
   });
 
   it('fills in defaults', () => {
@@ -41,10 +40,10 @@ describe('parseConfig', () => {
       prefix: 'shotparty',
     });
     expect(config.alerts).toEqual({});
+    expect(config.budgets).toEqual({ accountMonthlyUsd: 20 });
     expect(config.download.outDir).toBe('photos');
     expect(config.stages.prod).toEqual({
       turnstileSiteKey: '0x4AAAAAAAexample',
-      accountBudget: false,
       archiveAfterDays: 0,
       localDev: false,
     });
@@ -94,15 +93,28 @@ describe('parseConfig', () => {
     ]);
   });
 
-  it('rejects a budget on more than one stage', () => {
+  it('explains that accountBudget was replaced', () => {
+    expect(problems({ stages: { dev: { turnstileSiteKey: 'k', accountBudget: true } } })).toEqual([
+      expect.stringMatching(
+        /^stages\.dev: "accountBudget" was replaced by budgets\.accountMonthlyUsd/,
+      ),
+    ]);
+  });
+});
+
+describe('budgets', () => {
+  it('takes the account limit from the config, with 0 meaning no budget', () => {
+    const config = parseConfig({
+      budgets: { accountMonthlyUsd: 0 },
+      stages: { dev: { turnstileSiteKey: 'k' } },
+    });
+    expect(config.budgets.accountMonthlyUsd).toBe(0);
+  });
+
+  it('rejects a negative limit', () => {
     expect(
-      problems({
-        stages: {
-          dev: { turnstileSiteKey: 'k', accountBudget: true },
-          prod: { turnstileSiteKey: 'k', accountBudget: true },
-        },
-      }),
-    ).toEqual([expect.stringContaining('accountBudget is set on dev and prod')]);
+      problems({ budgets: { accountMonthlyUsd: -1 }, stages: { prod: { turnstileSiteKey: 'k' } } }),
+    ).toEqual(['budgets.accountMonthlyUsd: must be >= 0']);
   });
 });
 
@@ -206,14 +218,15 @@ describe('events', () => {
       problems({
         aws: { prefix: 'Bad_Prefix' },
         stages: {
-          dev: { turnstileSiteKey: 'k', accountBudget: true },
-          prod: { turnstileSiteKey: 'k', accountBudget: true },
+          dev: { turnstileSiteKey: 'k' },
+          prod: { turnstileSiteKey: 'k' },
         },
+        uploads: { maxFileGb: 2, sessionGb: 1 },
         events: [party, { ...party, name: 'Again' }],
       }),
     ).toEqual([
       expect.stringMatching(/^aws\.prefix: must match pattern/),
-      expect.stringContaining('accountBudget is set on dev and prod'),
+      expect.stringContaining('uploads.sessionGb (1) is below maxFileGb (2)'),
       'events.1.eventId: "summer-party-2026" is used twice',
     ]);
   });

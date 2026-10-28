@@ -10,10 +10,12 @@ load_config() {
 }
 
 # Like load_config, plus the `sam deploy` arguments for one stack, built from the config and the
-# live account: STACK_NAME, PARAM_OVERRIDES (array) and TAGS (array). Usage: load_deploy_params <data|app> <stage>
+# live account: STACK_NAME, PARAM_OVERRIDES (array) and TAGS (array).
+# Usage: load_deploy_params <data|app> <stage>   or   load_deploy_params account
 load_deploy_params() {
-  local out
-  out="$(cd "$ROOT" && npx --no-install tsx scripts/config-env.ts --deploy "$1" --stage "$2")" || exit 1
+  local out args=(--deploy "$1")
+  [[ "$1" == account ]] || args+=(--stage "$2")
+  out="$(cd "$ROOT" && npx --no-install tsx scripts/config-env.ts "${args[@]}")" || exit 1
   eval "$out"
 }
 

@@ -4,13 +4,20 @@
  *
  *   tsx scripts/config-env.ts                          CONFIG_PROFILE, PROFILE, REGION, PREFIX, ALERT_EMAIL
  *   tsx scripts/config-env.ts --deploy app --stage dev  + STACK_NAME, PARAM_OVERRIDES=(…), TAGS=(…)
+ *   tsx scripts/config-env.ts --deploy account          the same for the <prefix>-account stack
  */
 import { parseArgs } from 'node:util';
 import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { CloudFrontClient, GetDistributionConfigCommand } from '@aws-sdk/client-cloudfront';
 import { assertIsError } from '../api/src/lib/result.js';
 import { awsProfile, ConfigError, isStage, loadConfig, names } from './lib/config.js';
-import { type Discovered, deployParams, shellQuote } from './lib/deploy-params.js';
+import {
+  accountDeployParams,
+  type DeployParams,
+  type Discovered,
+  deployParams,
+  shellQuote,
+} from './lib/deploy-params.js';
 
 const { values: opts } = parseArgs({
   options: { deploy: { type: 'string' }, stage: { type: 'string' } },
@@ -38,9 +45,11 @@ const lines = [
   `ALERT_EMAIL=${shellQuote(config.alerts.email ?? '')}`,
 ];
 
-if (opts.deploy) {
+if (opts.deploy === 'account') {
+  pushDeployParams(accountDeployParams(config));
+} else if (opts.deploy) {
   const kind = opts.deploy;
-  if (kind !== 'data' && kind !== 'app') fail('--deploy must be data or app');
+  if (kind !== 'data' && kind !== 'app') fail('--deploy must be data, app or account');
   if (!isStage(opts.stage)) fail('--stage must be dev or prod');
   const stage = opts.stage;
 
@@ -55,13 +64,18 @@ if (opts.deploy) {
       );
     },
   );
-  let params;
   try {
-    params = deployParams(config, stage, kind, discovered);
+    pushDeployParams(deployParams(config, stage, kind, discovered));
   } catch (e: unknown) {
     if (e instanceof ConfigError) fail(e.message);
     throw e;
   }
+}
+
+console.log(lines.join('\n'));
+
+/** Prints the warnings and adds STACK_NAME, PARAM_OVERRIDES and TAGS to the output. */
+function pushDeployParams(params: DeployParams): void {
   for (const w of params.warnings) {
     console.error(`warning: ${w}`);
   }
@@ -72,8 +86,6 @@ if (opts.deploy) {
     `TAGS=(${quoteAll(params.tags)})`,
   );
 }
-
-console.log(lines.join('\n'));
 
 /** Reads the app stack's site URL and the web ACL attached to its distribution, if they exist. */
 async function discover(appStack: string, region: string): Promise<Discovered> {

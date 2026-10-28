@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PERMANENTLY destroy one stage (app stack, data stack, AND the retained media bucket + table,
-# including every uploaded photo) in the target account. Intended for throwaway test deployments,
+# including every uploaded photo) in the target account; when no other stage is left, also the
+# <prefix>-account stack (the account budget). Intended for throwaway test deployments,
 # e.g. a trial run in another account. Never run this against a stage whose photos you need.
 #
 # Usage: SHOTPARTY_PROFILE=<profile> scripts/teardown-stage.sh <dev|prod>
@@ -89,18 +90,28 @@ if [[ -n "$TABLE" ]] && aws_ dynamodb describe-table --table-name "$TABLE" >/dev
   aws_ dynamodb delete-table --table-name "$TABLE" >/dev/null
 fi
 
-# 5. Secrets from bootstrap-secrets.sh, which no stack owns. alert_email is shared by both stages,
-#    so it goes only once the other stage has no stacks left.
+# 5. Secrets from bootstrap-secrets.sh, which no stack owns.
 for name in $(aws_ ssm get-parameters-by-path --path "/$PREFIX/$STAGE" --recursive \
   --query 'Parameters[].Name' --output text); do
   echo "==> Deleting parameter $name"
   aws_ ssm delete-parameter --name "$name"
 done
+
+# 6. What both stages share goes only once the other stage has no stacks left: the account stack
+#    (the account budget) and alert_email, which the budget emails.
 OTHER_STAGE="$([[ "$STAGE" == "prod" ]] && echo dev || echo prod)"
-if ! stack_exists "${PREFIX}-${OTHER_STAGE}-app" && ! stack_exists "${PREFIX}-${OTHER_STAGE}-data" \
-  && aws_ ssm get-parameter --name "/$PREFIX/alert_email" >/dev/null 2>&1; then
-  echo "==> Deleting parameter /$PREFIX/alert_email (no other stage left)"
-  aws_ ssm delete-parameter --name "/$PREFIX/alert_email"
+if ! stack_exists "${PREFIX}-${OTHER_STAGE}-app" && ! stack_exists "${PREFIX}-${OTHER_STAGE}-data"; then
+  if stack_exists "${PREFIX}-account"; then
+    echo "==> Deleting ${PREFIX}-account (the account budget; no other stage left)"
+    aws_ cloudformation delete-stack --stack-name "${PREFIX}-account"
+    wait_stack delete "${PREFIX}-account"
+  fi
+  if aws_ ssm get-parameter --name "/$PREFIX/alert_email" >/dev/null 2>&1; then
+    echo "==> Deleting parameter /$PREFIX/alert_email (no other stage left)"
+    aws_ ssm delete-parameter --name "/$PREFIX/alert_email"
+  fi
+else
+  echo "==> Keeping ${PREFIX}-account and /$PREFIX/alert_email: stage $OTHER_STAGE still has stacks"
 fi
 
 echo "==> Stage '$STAGE' removed from this account."

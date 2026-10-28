@@ -66,6 +66,18 @@ describe('riskyChanges', () => {
   it('allows creating a brand-new stack', () => {
     expect(riskyChanges('data', [change('MediaBucket', 'AWS::S3::Bucket', 'Add')])).toEqual([]);
   });
+
+  it('lets the old budget leave the app stack and the account stack change freely', () => {
+    expect(
+      riskyChanges('app', [change('MonthlyBudget', 'AWS::Budgets::Budget', 'Remove')]),
+    ).toEqual([]);
+    expect(
+      riskyChanges('account', [
+        change('AccountBudget', 'AWS::Budgets::Budget', 'Remove'),
+        change('Placeholder', 'AWS::CloudFormation::WaitConditionHandle', 'Add'),
+      ]),
+    ).toEqual([]);
+  });
 });
 
 describe('setup helpers', () => {
@@ -102,24 +114,18 @@ describe('configFromAnswers', () => {
     siteKeys: { prod: '0x4AAAAAAAexample' },
   };
 
-  it('writes a valid config with the budget on the only stage', () => {
+  it('writes a valid config with the default account budget', () => {
     const raw = configFromAnswers(base);
     const config = parseConfig(raw);
-    expect(config.stages.prod).toMatchObject({
-      turnstileSiteKey: '0x4AAAAAAAexample',
-      accountBudget: true,
-    });
+    expect(config.stages.prod).toMatchObject({ turnstileSiteKey: '0x4AAAAAAAexample' });
+    expect(config.budgets.accountMonthlyUsd).toBe(20);
     expect(config.alerts.email).toBe('me@example.com');
     expect(raw).not.toHaveProperty('events');
   });
 
-  it('puts the budget on dev when both stages exist, and uses the test key for a blank dev key', () => {
+  it('uses the test key for a blank dev key', () => {
     const config = parseConfig(configFromAnswers({ ...base, stages: ['dev', 'prod'] }));
-    expect(config.stages.dev).toMatchObject({
-      turnstileSiteKey: TEST_SITE_KEY,
-      accountBudget: true,
-    });
-    expect(config.stages.prod?.accountBudget).toBe(false);
+    expect(config.stages.dev).toMatchObject({ turnstileSiteKey: TEST_SITE_KEY });
   });
 
   it('leaves the prod key out for setup to create when a Cloudflare account is given', () => {

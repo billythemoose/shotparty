@@ -110,7 +110,7 @@ field first and the file last, as S3 requires ([upload.ts:129](../../web/src/upl
 
 A presigned POST carries the signer's authority and nothing more. The presign Lambda's role may
 only `s3:PutObject` on `uploads/*` in the media bucket
-([template.yaml:137](../../infra/app/template.yaml#L137)). So even a bug that signed the wrong key
+([template.yaml:129](../../infra/app/template.yaml#L129)). So even a bug that signed the wrong key
 couldn't grant a write to `accepted/`, or anywhere else.
 
 ## The media bucket

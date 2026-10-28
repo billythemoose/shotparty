@@ -2,7 +2,7 @@
  * @fileoverview Turns the config plus a few values discovered in AWS into `sam deploy` arguments,
  * replacing the hand-edited samconfig.toml files.
  */
-import { type Config, names, type StageName, stageConfig } from './config.js';
+import { accountStackName, type Config, names, type StageName, stageConfig } from './config.js';
 import { isTestSiteKey } from './setup.js';
 import { ALWAYS_BLOCK_SITE_KEY } from './turnstile-widget.js';
 
@@ -88,13 +88,26 @@ export function deployParams(
       `TurnstileSiteKey=${settings.turnstileSiteKey ?? ALWAYS_BLOCK_SITE_KEY}`,
       `TurnstileHostnames=${samValue(hostnames)}`,
       `WebAclArn=${samValue(discovered.webAclArn ?? '')}`,
-      `AccountBudget=${settings.accountBudget}`,
       `MaxUploadBytes=${config.uploads.maxFileBytes}`,
       `DefaultSessionFiles=${config.uploads.sessionFiles}`,
       `DefaultSessionBytes=${config.uploads.sessionBytes}`,
     ],
     tags,
     warnings,
+  };
+}
+
+/** Returns the `sam deploy` arguments for the <prefix>-account stack (the account budget). */
+export function accountDeployParams(config: Config): DeployParams {
+  const prefix = config.aws.prefix;
+  return {
+    stackName: accountStackName(config),
+    parameterOverrides: [
+      `Prefix=${prefix}`,
+      `MonthlyBudgetUsd=${config.budgets.accountMonthlyUsd}`,
+    ],
+    tags: [`project=${prefix}`],
+    warnings: [],
   };
 }
 

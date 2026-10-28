@@ -10,7 +10,7 @@ The presigned POST pins the size and content type, but the content type is only 
 The media bucket (data stack) sends its object events to **Amazon EventBridge**
 (`EventBridgeEnabled: true`, [data template.yaml:91](../../infra/data/template.yaml#L91)). A rule
 in the app stack matches them and invokes the **validate** Lambda
-([template.yaml:277](../../infra/app/template.yaml#L277)):
+([template.yaml:269](../../infra/app/template.yaml#L269)):
 
 ```yaml
 source: [aws.s3]

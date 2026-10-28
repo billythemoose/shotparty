@@ -86,14 +86,10 @@ export interface WizardAnswers {
 /** The config file the wizard writes (validated with parseConfig before it is saved). */
 export function configFromAnswers(answers: WizardAnswers): Record<string, unknown> {
   const stages: Record<string, unknown> = {};
-  // Budgets are per account: put it on the first stage (dev when there is one).
-  answers.stages.forEach((s, i) => {
+  for (const s of answers.stages) {
     const key = answers.siteKeys[s] || (answers.cloudflareAccountId ? undefined : TEST_SITE_KEY);
-    stages[s] = {
-      ...(key ? { turnstileSiteKey: key } : {}),
-      ...(i === 0 ? { accountBudget: true } : {}),
-    };
-  });
+    stages[s] = key ? { turnstileSiteKey: key } : {};
+  }
   const config: Record<string, unknown> = {
     $schema: './shotparty.config.schema.json',
     aws: { profile: answers.profile, region: answers.region, prefix: answers.prefix },

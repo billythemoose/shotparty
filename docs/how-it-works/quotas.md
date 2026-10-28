@@ -186,7 +186,7 @@ within the retry backoff. It still retries a plain `429` from API Gateway's thro
 error code.
 
 A log metric filter counts the `quota-exceeded` lines, and an alarm emails the organizer when 25 or
-more happen within 15 minutes ([template.yaml:705](../../infra/app/template.yaml#L705)). That's
+more happen within 15 minutes ([template.yaml:697](../../infra/app/template.yaml#L697)). That's
 either abuse, or limits set too low for the real guests; `event:update` can raise them without a
 deploy.
 

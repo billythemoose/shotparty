@@ -65,7 +65,7 @@ Nothing public can be made fully bot-proof. The goal is to make scripted abuse i
 | 6 | **Presigned POST policy per file:** server-chosen key, exact content type and byte size, 10-minute expiry. The media bucket blocks public access and allows CORS from the site only. | Oversized files, overwriting others' files, arbitrary paths, reusing links later |
 | 7 | **Post-upload validation** by magic bytes (JPEG, PNG, HEIC/HEIF, WebP, MP4/MOV, and camera RAW: TIFF-based DNG/CR2/NEF/ARW/ORF/RW2, Fujifilm RAF, CR3). | Junk, executables, and archives renamed as media |
 | 8 | **Upload window and kill switch:** each event's `openFrom`/`openUntil`, plus the SSM parameter `/<prefix>/<stage>/uploads_enabled`, checked on every session and presign. | Abuse after the event; instant shutdown |
-| 9 | **Cost circuit breakers:** CloudWatch alarms (Lambda errors and throttles, API 5xx, presign spike, rejected uploads, quota exceeded, Turnstile failures) emailing through SNS, including on recovery, and an account budget ($15/month; email at $5 and $15 actual, $15 forecast). | Surprises of any kind |
+| 9 | **Cost circuit breakers:** CloudWatch alarms (Lambda errors and throttles, API 5xx, presign spike, rejected uploads, quota exceeded, Turnstile failures) emailing through SNS, including on recovery, and an account budget in its own `<prefix>-account` stack (default $20/month; email at a third of the limit and at the limit, actual, and at the limit, forecast). | Surprises of any kind |
 
 **Worst case:** S3 doesn't charge for inbound data, so filling the 100 GiB event cap costs about $2.30/month in storage until the junk is deleted. The realistic risk is nuisance content, not a large bill; validation plus the organizer's review in the gallery handles it.
 
@@ -76,7 +76,8 @@ Templates are **AWS SAM** (`infra/*/template.yaml`): plain CloudFormation plus t
 | Stack | Contains | Changes | Protection |
 |---|---|---|---|
 | `<prefix>-<stage>-data` | Media bucket, DynamoDB table | Rarely | Termination protection; a **stack policy** (`infra/data/stack-policy.json`) denying `Update:Replace` and `Update:Delete` on the bucket and table; `DeletionPolicy` and `UpdateReplacePolicy: Retain`; S3 versioning; DynamoDB deletion protection and PITR |
-| `<prefix>-<stage>-app` | Lambdas, HTTP API, CloudFront, site bucket, alarms, budget | Every iteration | Freely redeployable; deleting and recreating it is safe for data |
+| `<prefix>-<stage>-app` | Lambdas, HTTP API, CloudFront, site bucket, alarms | Every iteration | Freely redeployable; deleting and recreating it is safe for data |
+| `<prefix>-account` | The account-wide budget, shared by the stages | Rarely | None needed; deleted with the last stage |
 
 - **Wiring:** the data stack writes the bucket and table names and ARNs to **SSM parameters**; the app stack reads them with `AWS::SSM::Parameter::Value<String>` parameters. CloudFormation `Export`/`ImportValue` isn't used, because exports lock both stacks and block edits.
 - **Replacement-safe rules for the data stack:**

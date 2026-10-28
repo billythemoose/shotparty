@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { parseConfig } from '../lib/config.js';
-import { deployParams, shellQuote } from '../lib/deploy-params.js';
+import { accountDeployParams, deployParams, shellQuote } from '../lib/deploy-params.js';
 
 const config = parseConfig({
   stages: {
-    dev: { turnstileSiteKey: '1x00000000000000000000BB', accountBudget: true },
+    dev: { turnstileSiteKey: '1x00000000000000000000BB' },
     prod: { turnstileSiteKey: '0x4AAAAAAAexample', archiveAfterDays: 30 },
   },
 });
@@ -39,7 +39,6 @@ describe('deployParams', () => {
       'TurnstileSiteKey=0x4AAAAAAAexample',
       'TurnstileHostnames=d111example.cloudfront.net',
       `WebAclArn=${live.webAclArn}`,
-      'AccountBudget=false',
       'MaxUploadBytes=1073741824',
       'DefaultSessionFiles=500',
       'DefaultSessionBytes=10737418240',
@@ -70,13 +69,24 @@ describe('deployParams', () => {
     expect(app.warnings).toEqual([expect.stringMatching(/guests are refused/)]);
   });
 
-  it('adds localhost to the dev Turnstile hostnames and creates the budget there', () => {
-    const real = parseConfig({
-      stages: { dev: { turnstileSiteKey: '0x4AAAAAAAexample', accountBudget: true } },
-    });
+  it('adds localhost to the dev Turnstile hostnames', () => {
+    const real = parseConfig({ stages: { dev: { turnstileSiteKey: '0x4AAAAAAAexample' } } });
     const p = deployParams(real, 'dev', 'app', live).parameterOverrides;
     expect(p).toContain('TurnstileHostnames=d111example.cloudfront.net,localhost');
-    expect(p).toContain('AccountBudget=true');
+  });
+
+  it('builds the account stack arguments from budgets.accountMonthlyUsd', () => {
+    const custom = parseConfig({
+      aws: { prefix: 'party' },
+      budgets: { accountMonthlyUsd: 30 },
+      stages: { prod: { turnstileSiteKey: '0x4AAAAAAAexample' } },
+    });
+    expect(accountDeployParams(custom)).toEqual({
+      stackName: 'party-account',
+      parameterOverrides: ['Prefix=party', 'MonthlyBudgetUsd=30'],
+      tags: ['project=party'],
+      warnings: [],
+    });
   });
 
   it('turns the hostname check off for test keys, whose tokens report no real hostname', () => {

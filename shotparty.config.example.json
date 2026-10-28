@@ -8,10 +8,12 @@
   "alerts": {
     "email": "you@example.com"
   },
+  "budgets": {
+    "accountMonthlyUsd": 20
+  },
   "stages": {
     "dev": {
-      "turnstileSiteKey": "1x00000000000000000000BB",
-      "accountBudget": true
+      "turnstileSiteKey": "1x00000000000000000000BB"
     },
     "prod": {
       "turnstileSiteKey": "0x4AAAAAAAREPLACE_ME"

@@ -179,14 +179,14 @@ describe('withSiteKey', () => {
       cloudflare: { accountId: ACCOUNT },
       stages: {
         dev: { turnstileSiteKey: '1x00000000000000000000BB' },
-        prod: { accountBudget: true },
+        prod: { archiveAfterDays: 30 },
       },
     });
     expect(JSON.parse(withSiteKey(text, 'prod', '0x4AAAnew'))).toEqual({
       cloudflare: { accountId: ACCOUNT },
       stages: {
         dev: { turnstileSiteKey: '1x00000000000000000000BB' },
-        prod: { accountBudget: true, turnstileSiteKey: '0x4AAAnew' },
+        prod: { archiveAfterDays: 30, turnstileSiteKey: '0x4AAAnew' },
       },
     });
   });

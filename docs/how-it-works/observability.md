@@ -2,7 +2,8 @@
 
 An event lasts an evening, and the organizer isn't watching a dashboard. So the system is built to
 **email when something needs attention**, and to stay quiet otherwise. Everything is CloudWatch and
-SNS, defined in the app template ([template.yaml:451](../../infra/app/template.yaml#L451)).
+SNS, defined in the app template ([template.yaml:443](../../infra/app/template.yaml#L443)),
+plus a budget in its own small stack.
 
 ```mermaid
 flowchart TB
@@ -22,7 +23,7 @@ flowchart TB
     m3["AWS/ApiGateway: 5xx"]:::mgmt
   end
   alarms["7 alarms"]:::mgmt --> sns["SNS topic"]:::mgmt --> mail(["Organizer's email"]):::ext
-  budget["Budget: $5, $15,<br/>forecast $15"]:::mgmt --> mail
+  budget["Account budget: ⅓, limit,<br/>forecast (default $20)"]:::mgmt --> mail
 
   sess --> lf1
   pre --> lf2
@@ -58,7 +59,7 @@ They never log tokens, sessions, PINs or IP addresses.
 ## Metric filters
 
 Three log metric filters turn log lines into custom metrics in the `<prefix>/<stage>` namespace
-([template.yaml:469](../../infra/app/template.yaml#L469)):
+([template.yaml:461](../../infra/app/template.yaml#L461)):
 
 | Metric            | Log group | Pattern                    |
 | ----------------- | --------- | -------------------------- |
@@ -86,7 +87,7 @@ quiet.
 | `turnstile-failed`   | 25+ failed human checks in 15 minutes                        | A bot, or the Turnstile hostname or keys are wrong    |
 
 The two Lambda alarms use metric math (`SUM(METRICS())`) over each function's metric, so one alarm
-covers all of them ([template.yaml:502](../../infra/app/template.yaml#L502)).
+covers all of them ([template.yaml:494](../../infra/app/template.yaml#L494)).
 
 ## Email
 
@@ -96,9 +97,16 @@ SNS sends a confirmation link first, and nothing arrives until it's clicked.
 
 ## Budget
 
-An AWS Budget of $15 a month emails the same address when actual spend passes **$5** and **$15**,
-and when the month's **forecast** passes **$15** ([template.yaml:738](../../infra/app/template.yaml#L738)).
-Budgets cover the whole account, not a stage, so only the stage with `accountBudget` set creates it.
+An AWS Budget for the whole account, `<prefix>-account-monthly`, emails the same address when
+actual spend passes **a third** of its limit, when it passes **the limit**, and when the month's
+**forecast** passes the limit. The limit is `budgets.accountMonthlyUsd` in `shotparty.config.json`
+(default **$20** a month; 0 turns it off).
+
+Budgets cover the whole account, not a stage, so the budget lives in its own stack,
+`<prefix>-account` ([template.yaml](../../infra/account/template.yaml)), which belongs to no
+stage: tearing down dev never leaves prod unwatched. Setup deploys it after the stages, and
+teardown deletes it with the last stage. It can't tell dev spend from prod spend; that would need
+cost allocation tags, which only an Organization's management account can activate.
 
 For scale: the whole account spent $0.002 through the build, every test suite and a 300-upload
 load test. A live event is expected at $0.50–$2 a month.

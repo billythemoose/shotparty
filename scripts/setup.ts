@@ -9,6 +9,9 @@
  * Options: --stage <dev|prod>   only this stage (default: every stage in the config)
  *          --skip-events        don't create the config's events
  *
+ * Budget: the account-wide monthly budget is the <prefix>-account stack, deployed after the
+ * stages, so it doesn't depend on any one stage.
+ *
  * Turnstile: with cloudflare.accountId in the config and CLOUDFLARE_API_TOKEN in the environment,
  * setup creates the widget (or adds the stage's hostname to it), writes the site key into the
  * config and the secret into SSM. Otherwise the keys are entered by hand (TURNSTILE_SECRET or a
@@ -30,6 +33,7 @@ import { GetParameterCommand, PutParameterCommand, SSMClient } from '@aws-sdk/cl
 import { ACCENT_COLOR_PATTERN, eventIdKey } from '../api/src/lib/events.js';
 import { assertIsError } from '../api/src/lib/result.js';
 import {
+  accountStackName,
   awsProfile,
   type Config,
   ConfigError,
@@ -303,6 +307,27 @@ for (const stage of stages) {
   summary.push(...todo.map((t) => `${stage} TODO: ${t}`));
 }
 
+// ---------- 9. the account-wide budget (one stack for every stage) ----------
+heading(`Account: ${accountStackName(config)} (the account budget)`);
+const oldBudgetStages = await stagesWithOldAccountBudget();
+if (oldBudgetStages.length) {
+  // The budget name is taken until that app stack is redeployed with this version.
+  console.log(
+    `  skipped: the ${oldBudgetStages.join(' and ')} app stack still holds the old account budget. ` +
+      `Run npm run setup for ${oldBudgetStages.join(' and ')} to move it here.`,
+  );
+  summary.push(
+    `TODO: run npm run setup -- --stage ${oldBudgetStages[0]} to move the account budget to ${accountStackName(config)}`,
+  );
+} else {
+  await runInTerminal('bash', ['scripts/deploy.sh', 'account'], scriptEnv);
+  if (config.budgets.accountMonthlyUsd > 0) {
+    summary.push(
+      `account budget: ${config.aws.prefix}-account-monthly ($${config.budgets.accountMonthlyUsd}/month)`,
+    );
+  }
+}
+
 heading('Done');
 for (const line of summary) {
   console.log(`  ${line}`);
@@ -347,6 +372,27 @@ async function stackOutputs(stack: string): Promise<Record<string, string> | nul
     if (/does not exist/.test(e.message)) return null;
     throw e;
   }
+}
+
+/**
+ * Returns the stages whose app stack was deployed before Stage 33 with the account budget in it
+ * (an AccountBudget=true parameter), which holds the name the account stack needs.
+ */
+async function stagesWithOldAccountBudget(): Promise<StageName[]> {
+  const found: StageName[] = [];
+  for (const stage of STAGES) {
+    try {
+      const res = await cfn.send(
+        new DescribeStacksCommand({ StackName: names(config, stage).appStack }),
+      );
+      const old = res.Stacks?.[0]?.Parameters?.find((p) => p.ParameterKey === 'AccountBudget');
+      if (old?.ParameterValue === 'true') found.push(stage);
+    } catch (e: unknown) {
+      assertIsError(e);
+      if (!/does not exist/.test(e.message)) throw e;
+    }
+  }
+  return found;
 }
 
 async function healthCheck(siteUrl: string): Promise<void> {

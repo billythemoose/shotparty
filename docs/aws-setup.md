@@ -59,7 +59,7 @@ Either way, all of it is $0/month. Both paths also need the [account requirement
   ```
   An IAM user's access keys also work, but keep them out of the repo and rotate them.
 - [ ] In `shotparty.config.json`, set `aws.profile` to that profile, and `aws.region` if it isn't us-east-1.
-- [ ] Set `"accountBudget": true` on one stage. The stack then creates a monthly cost budget for the whole account. Budgets without actions are free.
+- [ ] Optionally set `budgets.accountMonthlyUsd` (default $20). Setup creates a monthly cost budget for the whole account in its own stack. Budgets without actions are free.
 - [ ] Check the [account requirements](#account-requirements-both-paths), then run `npm run setup` (see the README).
 
 ---
@@ -189,7 +189,7 @@ grep -A3 '\[shotparty\]' ~/.aws/credentials 2>/dev/null
 
 Then:
 - [ ] A new member account almost always starts with a Lambda concurrency limit of 10: request the increase described in [account requirements](#account-requirements-both-paths), and wait for it to be approved.
-- [ ] Set `aws.profile` to `shotparty` in the config, set `"accountBudget": true` on one stage (the stack creates the account's monthly budget), and run `npm run setup`.
+- [ ] Set `aws.profile` to `shotparty` in the config and run `npm run setup` (it also creates the account's monthly budget).
 
 ## Troubleshooting
 

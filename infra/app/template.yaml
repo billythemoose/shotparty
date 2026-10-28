@@ -33,13 +33,6 @@ Parameters:
     Description: >-
       ARN of the CloudFront WAF web ACL created by the CloudFront flat-rate (Free) plan subscription.
       Set it after subscribing so redeploys keep the association instead of drifting it away.
-  AccountBudget:
-    Type: String
-    AllowedValues: ['true', 'false']
-    Default: 'false'
-    Description: >-
-      Create the account-wide monthly cost budget in this stack. Budgets are per account, not per
-      stage, so exactly one deployed stage should set this to true.
   TurnstileHostnames:
     Type: String
     Default: ''
@@ -69,7 +62,6 @@ Parameters:
 
 Conditions:
   HasWebAcl: !Not [!Equals [!Ref WebAclArn, '']]
-  CreateBudget: !Equals [!Ref AccountBudget, 'true']
 
 Globals:
   Function:
@@ -448,7 +440,7 @@ Resources:
         - Key: stage
           Value: !Ref Stage
 
-  # ---------- Alerts: alarms -> SNS -> email; budget -> email ----------
+  # ---------- Alerts: alarms -> SNS -> email (the budget is in the <Prefix>-account stack) ----------
   # The address lives in SSM (/<prefix>/alert_email, set by scripts/bootstrap-secrets.sh), not in
   # git; CloudFormation resolves it at deploy time. SNS emails a confirmation link first.
   AlertsTopic:
@@ -733,45 +725,6 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions: [!Ref AlertsTopic]
       OKActions: [!Ref AlertsTopic]
-
-  # Account-wide monthly cost budget (emails directly; no SNS policy needed).
-  MonthlyBudget:
-    Type: AWS::Budgets::Budget
-    Condition: CreateBudget
-    Properties:
-      Budget:
-        BudgetName: !Sub ${Prefix}-account-monthly
-        BudgetType: COST
-        TimeUnit: MONTHLY
-        BudgetLimit: { Amount: 15, Unit: USD }
-      NotificationsWithSubscribers:
-        - Notification:
-            {
-              NotificationType: ACTUAL,
-              ComparisonOperator: GREATER_THAN,
-              Threshold: 5,
-              ThresholdType: ABSOLUTE_VALUE,
-            }
-          Subscribers:
-            [{ SubscriptionType: EMAIL, Address: !Sub '{{resolve:ssm:/${Prefix}/alert_email}}' }]
-        - Notification:
-            {
-              NotificationType: ACTUAL,
-              ComparisonOperator: GREATER_THAN,
-              Threshold: 15,
-              ThresholdType: ABSOLUTE_VALUE,
-            }
-          Subscribers:
-            [{ SubscriptionType: EMAIL, Address: !Sub '{{resolve:ssm:/${Prefix}/alert_email}}' }]
-        - Notification:
-            {
-              NotificationType: FORECASTED,
-              ComparisonOperator: GREATER_THAN,
-              Threshold: 15,
-              ThresholdType: ABSOLUTE_VALUE,
-            }
-          Subscribers:
-            [{ SubscriptionType: EMAIL, Address: !Sub '{{resolve:ssm:/${Prefix}/alert_email}}' }]
 
 Outputs:
   ApiUrl:

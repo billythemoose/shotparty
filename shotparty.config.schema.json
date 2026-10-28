@@ -47,6 +47,19 @@
         }
       }
     },
+    "budgets": {
+      "description": "The account-wide monthly cost budget, in its own <prefix>-account stack: npm run setup deploys it after the stages, and npm run teardown deletes it with the last stage, so tearing down one stage never leaves the other unwatched. It counts every cost in the account. Budgets without actions are free.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accountMonthlyUsd": {
+          "description": "Monthly limit in USD. Emails alerts.email when actual cost passes a third of it, when it passes the limit, and when the month's forecast passes the limit. 0 = no budget.",
+          "type": "number",
+          "minimum": 0,
+          "default": 20
+        }
+      }
+    },
     "cloudflare": {
       "description": "Lets npm run setup manage the Turnstile widget through the Cloudflare API: it creates the widget (or reuses the one named after aws.prefix), adds each stage's site hostname, writes the site key into this file and the secret straight into SSM. Needs the CLOUDFLARE_API_TOKEN env var (an API token with Account > Turnstile > Edit); the token never goes in this file. Without this section, enter the keys by hand.",
       "type": "object",
@@ -130,11 +143,6 @@
           "description": "Public Cloudflare Turnstile site key (dash.cloudflare.com -> Turnstile). The always-pass test key 1x00000000000000000000BB is fine for dev. Leave it out when the cloudflare section is set: setup creates the widget and fills this in. The secret key goes to SSM (setup or scripts/bootstrap-secrets.sh).",
           "type": "string",
           "minLength": 1
-        },
-        "accountBudget": {
-          "description": "Create the account-wide monthly cost budget in this stage's stack. Budgets are per account, so set this on exactly one stage.",
-          "type": "boolean",
-          "default": false
         },
         "archiveAfterDays": {
           "description": "Move accepted photos to S3 Glacier Instant Retrieval this many days after upload (0 = off). ~80% cheaper storage, still instantly downloadable. Turn on after the event, once the photos are downloaded.",

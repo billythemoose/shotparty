@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Deploy shotparty.  Usage: scripts/deploy.sh <data|app|site|all> <dev|prod>
+# Deploy shotparty.  Usage: scripts/deploy.sh <data|app|site|all> <dev|prod>   or   scripts/deploy.sh account
 #   data: data stack    app: app stack + site    site: static site only    all: data, app, site
+#   account: the <prefix>-account stack (the account-wide budget; one for all stages)
 # Every stack deploy shows a CloudFormation change set and waits for confirmation, unless
 # SHOTPARTY_ASSUME_YES=1 (npm run setup, CI): then the change set is checked by
 # scripts/changeset-guard.ts and executed only if nothing protected would be replaced or deleted.
@@ -15,11 +16,11 @@ source "$ROOT/scripts/lib.sh"
 load_config
 
 usage() {
-  echo "usage: $0 <data|app|site|all> <dev|prod>" >&2
+  echo "usage: $0 <data|app|site|all> <dev|prod>   or   $0 account" >&2
   exit 1
 }
-[[ "$TARGET" =~ ^(data|app|site|all)$ ]] || usage
-[[ "$STAGE" =~ ^(dev|prod)$ ]] || usage
+[[ "$TARGET" =~ ^(data|app|site|all|account)$ ]] || usage
+[[ "$TARGET" == account || "$STAGE" =~ ^(dev|prod)$ ]] || usage
 
 # sam deploy with the arguments built from shotparty.config.json + the live account (no samconfig.toml).
 sam_deploy() {
@@ -86,6 +87,13 @@ deploy_data() {
   aws ssm get-parameters-by-path --path "/${PREFIX}/${STAGE}/" \
     --profile "$PROFILE" --region "$REGION" \
     --query 'Parameters[].[Name,Type]' --output table
+}
+
+deploy_account() {
+  echo "==> Linting account template"
+  cfn-lint "$ROOT/infra/account/template.yaml"
+  echo "==> Deploying ${PREFIX}-account (the account-wide budget)"
+  sam_deploy account
 }
 
 deploy_app() {
@@ -164,6 +172,7 @@ case "$TARGET" in
     deploy_site
     ;;
   site) deploy_site ;;
+  account) deploy_account ;;
   all)
     deploy_data
     deploy_app

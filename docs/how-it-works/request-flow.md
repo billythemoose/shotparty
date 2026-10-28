@@ -47,13 +47,13 @@ bits ([events.ts:98](../../api/src/lib/events.ts#L98)).
 
 - **CloudFront** serves the page from the **site bucket**, which is private and readable only by
   this distribution through Origin Access Control
-  ([template.yaml:327](../../infra/app/template.yaml#L327)).
+  ([template.yaml:319](../../infra/app/template.yaml#L319)).
 - `/e/<token>` isn't a file. A CloudFront Function on the default behavior rewrites any `/e/…`
-  path to `/index.html` ([template.yaml:365](../../infra/app/template.yaml#L365)). This is a
+  path to `/index.html` ([template.yaml:357](../../infra/app/template.yaml#L357)). This is a
   viewer-request function rather than a custom error page, because an error-page rule would also
   rewrite real `403`/`404` answers from the API.
 - The page's assets have hashed names and are cached for a year; `index.html` is uploaded with
-  `no-cache`, so a redeploy shows up on the next load ([deploy.sh:122](../../scripts/deploy.sh#L122)).
+  `no-cache`, so a redeploy shows up on the next load ([deploy.sh:149](../../scripts/deploy.sh#L149)).
 
 ## 2. The event lookup
 
@@ -63,7 +63,7 @@ The page reads the token from the path and calls `GET /api/event/{token}`
 - Every `/api/*` request goes through a second CloudFront behavior with caching disabled. Its
   viewer-request function stamps two headers, `x-viewer-ip` (the guest's real address) and
   `x-origin-verify` (a shared secret), overwriting anything the guest sent
-  ([template.yaml:386](../../infra/app/template.yaml#L386)).
+  ([template.yaml:378](../../infra/app/template.yaml#L378)).
 - **API Gateway** (an HTTP API, throttled to 50 requests per second with a burst of 100 per route)
   invokes the **event** Lambda ([event.ts:11](../../api/src/handlers/event.ts#L11)).
 - The Lambda first refuses anything without the right `x-origin-verify` (see
@@ -121,7 +121,7 @@ The file lands at `uploads/<eventId>/<guest-slug>/<uuid>.<ext>`.
 
 The media bucket sends its object events to **EventBridge**. A rule in the app stack matches
 `Object Created` under `uploads/` and invokes the **validate** Lambda, retrying for up to an hour
-([template.yaml:277](../../infra/app/template.yaml#L277)).
+([template.yaml:269](../../infra/app/template.yaml#L269)).
 
 The validator reads the first 64 bytes. Real photos and videos are copied to
 `accepted/<eventId>/<guest-slug>/<uuid>.<ext>` and the upload is deleted; anything else is deleted

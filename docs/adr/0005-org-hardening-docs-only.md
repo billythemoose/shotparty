@@ -31,8 +31,8 @@ Why not the script:
 
 ## Consequences
 
-- The default install is a single `npm run setup`. The budget comes from the stack
-  (`accountBudget`), not from an account-setup step.
+- The default install is a single `npm run setup`. The budget comes from a stack
+  (`<prefix>-account`, limit `budgets.accountMonthlyUsd`), not from an account-setup step.
 - People who want isolation follow the checklist; nothing in the deploy path changes.
 - The isolation story is told in docs, here and in [SECURITY.md](../../SECURITY.md), rather than
   in code.

@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  shotparty account stack: the account-wide monthly cost budget, shared by every stage, so tearing
+  down one stage never removes it. npm run setup deploys it after the stages; npm run teardown
+  deletes it once no stage stack is left.
+
+Parameters:
+  Prefix:
+    Type: String
+    Default: shotparty
+    AllowedPattern: '^[a-z][a-z0-9-]{1,20}[a-z0-9]$'
+    Description: >-
+      Name prefix for the stack, the budget and the SSM alert email parameter; set from
+      shotparty.config.json (aws.prefix) by scripts/deploy.sh.
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 20
+    MinValue: 0
+    Description: Monthly limit for the whole account in USD (budgets.accountMonthlyUsd); 0 = none.
+
+Conditions:
+  CreateBudget: !Not [!Equals [!Ref MonthlyBudgetUsd, 0]]
+  NoBudget: !Equals [!Ref MonthlyBudgetUsd, 0]
+
+Resources:
+  # Emails directly; no SNS policy needed.
+  AccountBudget:
+    Type: AWS::Budgets::Budget
+    Condition: CreateBudget
+    Properties:
+      Budget:
+        BudgetName: !Sub ${Prefix}-account-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref MonthlyBudgetUsd, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification:
+            {
+              NotificationType: ACTUAL,
+              ComparisonOperator: GREATER_THAN,
+              Threshold: 33.3,
+              ThresholdType: PERCENTAGE,
+            }
+          Subscribers:
+            [{ SubscriptionType: EMAIL, Address: !Sub '{{resolve:ssm:/${Prefix}/alert_email}}' }]
+        - Notification:
+            {
+              NotificationType: ACTUAL,
+              ComparisonOperator: GREATER_THAN,
+              Threshold: 100,
+              ThresholdType: PERCENTAGE,
+            }
+          Subscribers:
+            [{ SubscriptionType: EMAIL, Address: !Sub '{{resolve:ssm:/${Prefix}/alert_email}}' }]
+        - Notification:
+            {
+              NotificationType: FORECASTED,
+              ComparisonOperator: GREATER_THAN,
+              Threshold: 100,
+              ThresholdType: PERCENTAGE,
+            }
+          Subscribers:
+            [{ SubscriptionType: EMAIL, Address: !Sub '{{resolve:ssm:/${Prefix}/alert_email}}' }]
+
+  # A stack needs at least one resource; this free no-op holds it when the budget is off.
+  Placeholder:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Condition: NoBudget
+
+Outputs:
+  BudgetName:
+    Condition: CreateBudget
+    Value: !Sub ${Prefix}-account-monthly

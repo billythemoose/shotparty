@@ -12,7 +12,13 @@ Each stage (`dev`, `prod`) is two stacks, named from `aws.prefix` in `shotparty.
 | Stack                     | Contains                                                                                  | Changes       | Protection                                                              |
 | ------------------------- | ----------------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------- |
 | `<prefix>-<stage>-data`   | Media bucket, DynamoDB table, 4 SSM parameters naming them                                | Rarely        | Retain policies, termination protection, a stack policy, the change-set guard |
-| `<prefix>-<stage>-app`    | CloudFront, the site bucket, the HTTP API, five Lambdas, the EventBridge rule, alarms, SNS, the kill switch, the budget | Every deploy | None needed: safe to redeploy or delete                    |
+| `<prefix>-<stage>-app`    | CloudFront, the site bucket, the HTTP API, five Lambdas, the EventBridge rule, alarms, SNS, the kill switch | Every deploy | None needed: safe to redeploy or delete                    |
+
+One more stack is shared by the stages: `<prefix>-account` holds the account-wide budget
+([infra/account/template.yaml](../../infra/account/template.yaml); see
+[Observability](observability.md#budget)). It belongs to no stage, so tearing one down never
+removes it. Setup deploys it after the stages (`scripts/deploy.sh account`), and teardown deletes
+it with the last stage.
 
 ### How the data stack is protected
 
@@ -70,7 +76,7 @@ flowchart LR
   256 MB and a 10-second timeout (60 seconds for validate).
 - **The site** syncs the built page. Hashed assets are cached for a year, `index.html` is never
   cached, and CloudFront is invalidated only if something changed
-  ([deploy.sh:122](../../scripts/deploy.sh#L122)).
+  ([deploy.sh:153](../../scripts/deploy.sh#L153)).
 
 ### Change sets and the guard
 
@@ -80,14 +86,15 @@ modify, replace or remove.
 - **Interactively**, `sam deploy --confirm-changeset` shows it and waits for a `y`. The data deploy
   reminds you to look for `Replacement: True`.
 - **Unattended** (`npm run setup -- --config …`, or `SHOTPARTY_ASSUME_YES=1`), nobody reads it, so
-  `scripts/changeset-guard.ts` does ([deploy.sh:37](../../scripts/deploy.sh#L37)). The change set
-  is executed only if [`riskyChanges`](../../scripts/lib/changeset-guard.ts#L23) finds nothing;
+  `scripts/changeset-guard.ts` does ([deploy.sh:47](../../scripts/deploy.sh#L47)). The change set
+  is executed only if [`riskyChanges`](../../scripts/lib/changeset-guard.ts#L26) finds nothing;
   otherwise it's deleted and the deploy stops.
 
 | Stack | The guard refuses                                                                  |
 | ----- | ---------------------------------------------------------------------------------- |
 | Data  | Any resource that would be removed, replaced, or *might* be replaced (`Conditional`) |
 | App   | The same, but only for the CloudFront `Distribution`                               |
+| Account | Nothing: its only resource is the budget, which is recreated as it was             |
 
 The distribution is protected because a new one gets a new `*.cloudfront.net` domain, and every
 printed QR code points at the old one. Everything else in the app stack can be replaced freely.
@@ -110,12 +117,16 @@ first pass:
 Secrets are created in SSM by `scripts/bootstrap-secrets.sh` before the first app deploy, because
 the app template resolves `origin_verify` and `alert_email` at deploy time.
 
+After the stages, setup deploys the `<prefix>-account` stack with the account budget. An app stack
+deployed before that stack existed holds the budget's name, so until that stage is set up again,
+setup skips the account stack and says which stage to run.
+
 ### The one manual step
 
 The [CloudFront Free plan](../adr/0002-cloudfront-free-plan-waf.md), which provides the WAF for
 $0, can only be subscribed to in the console. Setup detects the plan's web ACL afterwards and passes
 it to the app stack as `WebAclArn`, so later deploys keep the association instead of drifting it
-away ([template.yaml:411](../../infra/app/template.yaml#L411)).
+away ([template.yaml:403](../../infra/app/template.yaml#L403)).
 
 A distribution on the plan can't be deleted until the plan is canceled, so `delete-app.sh` and
 `teardown` check for it and stop with instructions. Canceling the plan leaves its
@@ -130,7 +141,8 @@ distribution is gone.
 - `npm run teardown -- <stage>` removes the whole stage, photos included, after you type
   `destroy <stage>`. It has to lift the protections above one by one, which is the point: deleting
   the data takes a deliberate command, never a side effect. It also deletes the stage's SSM
-  secrets, plus the shared `alert_email` once the other stage has no stacks left. With
+  secrets, plus what the stages share once the other stage has no stacks left: the
+  `<prefix>-account` stack (the budget) and `alert_email`. With
   `--keep-data` it runs `delete-app.sh` instead, which keeps the secrets for the next deploy.
 
 ## AWS references

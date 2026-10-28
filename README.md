@@ -145,8 +145,8 @@ month in S3 Standard, cut by about 80% with `archiveAfterDays`. Raise the sessio
 config's `uploads` section (or per event) for keen photographers.
 
 Deliberately not used: a standalone WAF web ACL ($5+/month), WAF Bot Control ($10+), WAF CAPTCHA
-(the $15 Pro plan), Secrets Manager ($0.40 per secret) and a custom domain. A budget alarm emails
-at $5 and $15.
+(the $15 Pro plan), Secrets Manager ($0.40 per secret) and a custom domain. A free AWS budget for
+the whole account emails at a third of its limit and at the limit ($20 a month by default).
 
 ## Security
 

@@ -8,8 +8,9 @@ the day itself, the post-event runbook, configuration, deploys and live testing.
 
 Each stage (`dev`, `prod`) is a **data stack** (bucket and table; protected, never replaced) and an
 **app stack** (everything else; safe to redeploy). See [ADR 0001](adr/0001-two-stack-split.md).
-Use `dev` for testing; it also holds the account-wide budget. Guests use `prod`: **don't recreate
-its app stack after the QR cards are printed**, because the CloudFront URL would change.
+Use `dev` for testing. Guests use `prod`: **don't recreate its app stack after the QR cards are
+printed**, because the CloudFront URL would change. The account-wide budget is a small third stack,
+`<prefix>-account`, which lives as long as any stage does.
 
 All commands use the AWS profile from `shotparty.config.json` (with SSO:
 `aws sso login --profile <profile>`; sessions last 8 h).
@@ -64,7 +65,8 @@ scripts/sync-to-drive.sh prod <folder> gdrive:Events    # optional, needs rclone
 
 Everything you provide lives in one git-ignored file, `shotparty.config.json`: the AWS profile,
 region and name prefix, the alert email, the Cloudflare account ID (optional), and per stage the
-Turnstile site key, budget and archive settings. With `cloudflare.accountId` set, leave a stage's
+Turnstile site key and archive settings, and the account budget's monthly limit
+(`budgets.accountMonthlyUsd`, default $20; 0 = none). With `cloudflare.accountId` set, leave a stage's
 `turnstileSiteKey` out and `npm run setup` fills it in (it needs `CLOUDFLARE_API_TOKEN`; until the
 widget exists, deploys use Cloudflare's always-block test key, so the page fails closed). Start from `cp shotparty.config.example.json shotparty.config.json`. Every setting is
 described in `shotparty.config.schema.json`, so editors autocomplete and check it. Secrets never go
@@ -92,6 +94,7 @@ npm run build && npm run smoke --workspace api                         # bundles
 scripts/deploy.sh data <dev|prod>   # data stack (shows a change set; applies stack policy + protection)
 scripts/deploy.sh app  <dev|prod>   # app stack + site (bundles, smoke-tests, change set)
 scripts/deploy.sh site <dev|prod>   # page only (build, sync, CloudFront invalidation)
+scripts/deploy.sh account           # the <prefix>-account stack (the account-wide budget)
 scripts/bootstrap-secrets.sh <stage> [--set-turnstile-secret] [--set-alert-email] [--rotate-session-key]
 ```
 

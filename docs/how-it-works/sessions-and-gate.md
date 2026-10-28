@@ -65,7 +65,7 @@ it and waits until every Lambda has seen the change.
 
 The template creates it as `true`. CloudFormation rewrites the value only when the template's own
 value changes, so a manual `false` survives unrelated redeploys
-([template.yaml:228](../../infra/app/template.yaml#L228)).
+([template.yaml:220](../../infra/app/template.yaml#L220)).
 
 ### PIN
 

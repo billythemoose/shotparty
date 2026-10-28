@@ -21,7 +21,6 @@ export type StageName = (typeof STAGES)[number];
 export interface StageConfig {
   /** Absent until setup creates the widget (only allowed with the cloudflare section). */
   turnstileSiteKey?: string;
-  accountBudget: boolean;
   archiveAfterDays: number;
   localDev: boolean;
 }
@@ -52,6 +51,8 @@ export interface UploadsConfig {
 export interface Config {
   aws: { profile: string; region: string; prefix: string };
   alerts: { email?: string };
+  /** The account-wide monthly budget in USD (0 = none), in the <prefix>-account stack. */
+  budgets: { accountMonthlyUsd: number };
   cloudflare?: { accountId: string };
   stages: Partial<Record<StageName, StageConfig>>;
   uploads: UploadsConfig;
@@ -60,6 +61,9 @@ export interface Config {
 }
 
 const GIB = 1024 ** 3;
+
+/** The account budget when the config doesn't set budgets.accountMonthlyUsd. */
+export const DEFAULT_ACCOUNT_BUDGET_USD = 20;
 
 /** The repository's root directory. */
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -87,7 +91,15 @@ const validate = ajv.compile(schema);
 function describe(e: ErrorObject): string {
   const where = e.instancePath ? e.instancePath.slice(1).replaceAll('/', '.') : '(top level)';
   if (e.keyword === 'additionalProperties') {
-    return `${where}: unknown setting "${String(e.params.additionalProperty)}"`;
+    const setting = String(e.params.additionalProperty);
+    if (setting === 'accountBudget') {
+      return (
+        `${where}: "accountBudget" was replaced by budgets.accountMonthlyUsd (default 20): ` +
+        'the account budget now has its own stack, so it no longer depends on one stage. ' +
+        'Remove accountBudget.'
+      );
+    }
+    return `${where}: unknown setting "${setting}"`;
   }
   if (e.keyword === 'required') return `${where}: missing "${String(e.params.missingProperty)}"`;
   return `${where}: ${e.message ?? 'is invalid'}`;
@@ -103,12 +115,6 @@ function crossFieldProblems(raw: unknown): string[] {
     // A non-array object, checked first.
     v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
   const stages = obj(obj(raw).stages);
-  const budgets = STAGES.filter((n) => obj(stages[n]).accountBudget === true);
-  if (budgets.length > 1) {
-    problems.push(
-      `stages: accountBudget is set on ${budgets.join(' and ')}; budgets are per account, so set it on one stage only`,
-    );
-  }
   const managed = typeof obj(obj(raw).cloudflare).accountId === 'string';
   for (const n of STAGES) {
     if (stages[n] !== undefined && obj(stages[n]).turnstileSiteKey === undefined && !managed) {
@@ -153,6 +159,7 @@ export function parseConfig(raw: unknown): Config {
   const input = raw as {
     aws?: Partial<Config['aws']>;
     alerts?: Config['alerts'];
+    budgets?: Partial<Config['budgets']>;
     cloudflare?: Config['cloudflare'];
     stages: Partial<Record<StageName, Partial<StageConfig>>>;
     uploads?: { maxFileGb?: number; sessionFiles?: number; sessionGb?: number };
@@ -168,7 +175,6 @@ export function parseConfig(raw: unknown): Config {
     if (!s) continue;
     stages[name] = {
       ...(s.turnstileSiteKey ? { turnstileSiteKey: s.turnstileSiteKey } : {}),
-      accountBudget: s.accountBudget ?? false,
       archiveAfterDays: s.archiveAfterDays ?? 0,
       localDev: s.localDev ?? name === 'dev',
     };
@@ -187,6 +193,9 @@ export function parseConfig(raw: unknown): Config {
       prefix: input.aws?.prefix ?? 'shotparty',
     },
     alerts: { ...input.alerts },
+    budgets: {
+      accountMonthlyUsd: input.budgets?.accountMonthlyUsd ?? DEFAULT_ACCOUNT_BUDGET_USD,
+    },
     ...(input.cloudflare ? { cloudflare: { accountId: input.cloudflare.accountId } } : {}),
     stages,
     uploads: {
@@ -249,6 +258,11 @@ export function stageConfig(config: Config, stage: StageName): StageConfig {
 /** The profile to use: --profile, then SHOTPARTY_PROFILE, then the config. */
 export function awsProfile(config: Config, override?: string): string {
   return override ?? process.env.SHOTPARTY_PROFILE ?? config.aws.profile;
+}
+
+/** The stack that holds the account-wide budget (one per prefix, not per stage). */
+export function accountStackName(config: Config): string {
+  return `${config.aws.prefix}-account`;
 }
 
 /** The AWS resource names for one stage. */

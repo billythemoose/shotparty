@@ -3,7 +3,8 @@
 #   --keep-data   delete only the app stack (site, API, alarms); photos and events stay
 #                 (scripts/delete-app.sh). Run npm run setup to bring the app back.
 #   (default)     delete everything for the stage, photos included (scripts/teardown-stage.sh,
-#                 which asks you to type "destroy <stage>").
+#                 which asks you to type "destroy <stage>"); with the last stage, also the
+#                 <prefix>-account stack (the account-wide budget).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGE="${1:-}"

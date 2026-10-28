@@ -19,13 +19,16 @@ export interface ResourceChange {
  */
 const PROTECTED_APP_RESOURCES = new Set(['Distribution']);
 
-/** Human-readable reasons to refuse; empty means safe to execute unattended. */
-export function riskyChanges(kind: StackKind, changes: ResourceChange[]): string[] {
+/**
+ * Human-readable reasons to refuse; empty means safe to execute unattended. Nothing in the account
+ * stack is protected: its only resource is the account budget, which is recreated as it was.
+ */
+export function riskyChanges(kind: StackKind | 'account', changes: ResourceChange[]): string[] {
   const reasons: string[] = [];
   for (const c of changes) {
     const id = `${c.LogicalResourceId} (${c.ResourceType})`;
     const protectedResource =
-      kind === 'data' || PROTECTED_APP_RESOURCES.has(c.LogicalResourceId ?? '');
+      kind === 'data' || (kind === 'app' && PROTECTED_APP_RESOURCES.has(c.LogicalResourceId ?? ''));
     if (!protectedResource) continue;
     if (c.Action === 'Remove') {
       reasons.push(`${id} would be deleted`);
