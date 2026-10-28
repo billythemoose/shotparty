@@ -45,7 +45,7 @@ if stack_exists "$APP_STACK"; then
   fi
   echo "==> Deleting $APP_STACK"
   aws_ cloudformation delete-stack --stack-name "$APP_STACK"
-  aws_ cloudformation wait stack-delete-complete --stack-name "$APP_STACK"
+  wait_stack delete "$APP_STACK"
   delete_plan_web_acl "$PROFILE" "$PLAN_ACL"
 fi
 
@@ -59,7 +59,7 @@ if stack_exists "$DATA_STACK"; then
   aws_ cloudformation update-termination-protection --no-enable-termination-protection \
     --stack-name "$DATA_STACK" >/dev/null
   aws_ cloudformation delete-stack --stack-name "$DATA_STACK"
-  aws_ cloudformation wait stack-delete-complete --stack-name "$DATA_STACK"
+  wait_stack delete "$DATA_STACK"
 else
   echo "Data stack not found; set MEDIA_BUCKET_OVERRIDE / TABLE_OVERRIDE to remove leftovers."
   MEDIA_BUCKET="${MEDIA_BUCKET_OVERRIDE:-}"

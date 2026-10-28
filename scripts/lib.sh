@@ -79,3 +79,106 @@ delete_plan_web_acl() {
   aws wafv2 delete-web-acl --scope CLOUDFRONT --name "$name" --id "$id" --lock-token "$token" \
     --profile "$profile" --region us-east-1
 }
+
+# Waits for a stack operation that was just started (execute-change-set, delete-stack) to finish,
+# instead of the silent `aws cloudformation wait`. Prints each resource as it finishes, a note when
+# a CloudFront distribution starts (the slow part), and, after a minute without news, what is still
+# in progress, so logs and CI show progress. When stdout is a terminal (also under npm run setup,
+# which hands it the terminal), a spinner with the elapsed time and the busy resources replaces
+# those minute lines.
+# Polls by stack ID, so a deleted stack still reports
+# DELETE_COMPLETE. Fails if the stack doesn't end in <OP>_COMPLETE or takes over an hour (like
+# `aws cloudformation wait`). Uses $PROFILE and $REGION.
+# Usage: wait_stack <create|update|delete> <stack-name>
+wait_stack() {
+  local op="$1" stack="$2" expected id status seen newest pending
+  local start=$SECONDS last_news=$SECONDS cloudfront_noted=false spin=false busy="starting"
+  local event_id when res_status logical type reason line
+  local -a fresh
+  [[ -t 1 ]] && spin=true
+  expected="$(tr '[:lower:]' '[:upper:]' <<<"$op")_COMPLETE"
+  id="$(aws cloudformation describe-stacks --stack-name "$stack" --profile "$PROFILE" \
+    --region "$REGION" --query 'Stacks[0].StackId' --output text 2>/dev/null)" || {
+    # A delete of a nearly empty stack can finish before we look.
+    [[ "$op" == delete ]] && return 0
+    echo "error: stack $stack not found" >&2
+    return 1
+  }
+  seen="$(aws cloudformation describe-stack-events --stack-name "$id" --profile "$PROFILE" \
+    --region "$REGION" --no-paginate --query 'StackEvents[0].EventId' --output text)"
+  echo "==> Waiting for $stack (${op}; progress below)"
+  while :; do
+    if $spin; then spin_for 10 "$start" "$busy"; else sleep 10; fi
+    # Newest first; keep the events since the last poll and print them oldest first.
+    fresh=()
+    newest=""
+    while IFS=$'\t' read -r event_id when res_status logical type reason; do
+      [[ "$event_id" == "$seen" ]] && break
+      [[ -z "$newest" ]] && newest="$event_id"
+      fresh=("$when"$'\t'"$res_status"$'\t'"$logical"$'\t'"$type"$'\t'"$reason" "${fresh[@]+"${fresh[@]}"}")
+    done < <(aws cloudformation describe-stack-events --stack-name "$id" --profile "$PROFILE" \
+      --region "$REGION" --no-paginate --output text --query \
+      'StackEvents[].[EventId,Timestamp,ResourceStatus,LogicalResourceId,ResourceType,ResourceStatusReason]')
+    [[ -n "$newest" ]] && seen="$newest"
+    for line in "${fresh[@]+"${fresh[@]}"}"; do
+      IFS=$'\t' read -r when res_status logical type reason <<<"$line"
+      [[ "$type" == AWS::CloudFormation::Stack ]] && continue
+      if [[ "$res_status" == *_IN_PROGRESS ]]; then
+        if [[ "$type" == AWS::CloudFront::Distribution ]] && ! $cloudfront_noted; then
+          echo "    $logical: CloudFront is working on the distribution; this usually takes 5-20 min"
+          cloudfront_noted=true
+          last_news=$SECONDS
+        fi
+        continue
+      fi
+      # when is ISO 8601 (2026-10-27T05:52:01.123000+00:00): keep the UTC time of day.
+      when="${when#*T}"
+      printf '    %s  %-18s %s (%s)\n' "${when:0:8}" "$res_status" "$logical" "$type"
+      [[ "$res_status" == *FAILED && "$reason" != None ]] && echo "      $reason"
+      last_news=$SECONDS
+    done
+
+    status="$(aws cloudformation describe-stacks --stack-name "$id" --profile "$PROFILE" \
+      --region "$REGION" --query 'Stacks[0].StackStatus' --output text)"
+    if [[ "$status" != *_IN_PROGRESS ]]; then
+      [[ "$status" == "$expected" ]] && return 0
+      echo "error: $stack ended in $status (expected $expected)" >&2
+      return 1
+    fi
+    if ((SECONDS - start >= 3600)); then
+      echo "error: $stack still $status after 60 min; stopped waiting (check the console)" >&2
+      return 1
+    fi
+    if $spin || ((SECONDS - last_news >= 60)); then
+      # shellcheck disable=SC2016 # backticks are a JMESPath literal
+      pending="$(aws cloudformation list-stack-resources --stack-name "$id" --profile "$PROFILE" \
+        --region "$REGION" --output text --query \
+        'StackResourceSummaries[?ends_with(ResourceStatus, `_IN_PROGRESS`)].LogicalResourceId')"
+      pending="${pending//$'\t'/, }"
+      pending="${pending//$'\n'/, }"
+      busy="still in progress: ${pending:-$status}"
+      $spin && continue
+      echo "    ... $(((SECONDS - start) / 60))m elapsed, $busy"
+      last_news=$SECONDS
+    fi
+  done
+}
+
+# Animates "<frame> 3m 07s <text>" on the terminal for about <seconds>, then clears the line, so
+# nothing is left between the lines wait_stack prints. Usage: spin_for <seconds> <start> <text>
+spin_for() {
+  local end=$((SECONDS + $1)) start="$2" text="$3" cols i=0 elapsed line
+  local -a frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+  cols="$(stty size 2>/dev/null </dev/tty | cut -d' ' -f2)"
+  # Some pseudo-terminals (script, CI runners) report 0 columns.
+  [[ "$cols" =~ ^[0-9]+$ ]] && ((cols >= 20)) || cols=80
+  while ((SECONDS < end)); do
+    sleep 0.2
+    elapsed=$((SECONDS - start))
+    line="${frames[i % 10]} $((elapsed / 60))m $(printf '%02d' $((elapsed % 60)))s  $text"
+    # Cut to the terminal width: a wrapped line can't be redrawn in place.
+    printf '\r\033[K    %s' "${line:0:cols-5}"
+    i=$((i + 1))
+  done
+  printf '\r\033[K'
+}

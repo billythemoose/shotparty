@@ -81,6 +81,31 @@ function heading(text: string): void {
   console.log(`\n━━ ${text}`);
 }
 
+/**
+ * Runs a command with its output going straight to this terminal, so the scripts see a TTY (and
+ * wait_stack can show its spinner); resolves when it exits 0, or fails setup.
+ */
+function runInTerminal(
+  cmd: string,
+  args: string[],
+  env: Record<string, string> = {},
+): Promise<void> {
+  return new Promise((done) => {
+    const child = spawn(cmd, args, {
+      cwd: REPO_ROOT,
+      env: { ...process.env, ...env },
+      stdio: 'inherit',
+    });
+    child.on('close', (code) => {
+      if (code === 0) {
+        done();
+      } else {
+        fail(`${cmd} ${args.join(' ')} exited with ${code}`);
+      }
+    });
+  });
+}
+
 /** Runs a command with live output; resolves with its stdout (also printed) or fails setup. */
 function run(cmd: string, args: string[], env: Record<string, string> = {}): Promise<string> {
   return new Promise((done) => {
@@ -209,14 +234,14 @@ for (const stage of stages) {
     // Also replaces a real secret left over from before the stage moved to the test key.
     secretArgs.push('--turnstile-test-secret');
   }
-  await run('bash', ['scripts/bootstrap-secrets.sh', ...secretArgs], scriptEnv);
+  await runInTerminal('bash', ['scripts/bootstrap-secrets.sh', ...secretArgs], scriptEnv);
 
   // ---------- 5. stacks: data, then app (+ page) ----------
   const appExisted = before !== null;
   heading(`${stage}: data stack`);
-  await run('bash', ['scripts/deploy.sh', 'data', stage], scriptEnv);
+  await runInTerminal('bash', ['scripts/deploy.sh', 'data', stage], scriptEnv);
   heading(`${stage}: app stack and page`);
-  await run('bash', ['scripts/deploy.sh', 'app', stage], scriptEnv);
+  await runInTerminal('bash', ['scripts/deploy.sh', 'app', stage], scriptEnv);
   if (!appExisted) {
     // First install: the site URL only exists now. The widget needs it, and both stacks too
     // (upload CORS, Turnstile hostnames and, for a new widget, its site key).
@@ -225,8 +250,8 @@ for (const stage of stages) {
       await ensureTurnstile(stage, turnstile, url);
     }
     heading(`${stage}: second pass with the new site URL`);
-    await run('bash', ['scripts/deploy.sh', 'data', stage], scriptEnv);
-    await run('bash', ['scripts/deploy.sh', 'app', stage], scriptEnv);
+    await runInTerminal('bash', ['scripts/deploy.sh', 'data', stage], scriptEnv);
+    await runInTerminal('bash', ['scripts/deploy.sh', 'app', stage], scriptEnv);
   }
   const outputs =
     (await stackOutputs(awsNames.appStack)) ?? fail(`${awsNames.appStack} has no outputs`);

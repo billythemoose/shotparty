@@ -55,11 +55,9 @@ sam_deploy() {
   aws cloudformation execute-change-set --change-set-name "$changeset" \
     --profile "$PROFILE" --region "$REGION"
   if $new_stack; then
-    aws cloudformation wait stack-create-complete --stack-name "$STACK_NAME" \
-      --profile "$PROFILE" --region "$REGION"
+    wait_stack create "$STACK_NAME"
   else
-    aws cloudformation wait stack-update-complete --stack-name "$STACK_NAME" \
-      --profile "$PROFILE" --region "$REGION"
+    wait_stack update "$STACK_NAME"
   fi
   echo "==> $STACK_NAME is up to date"
 }
@@ -104,6 +102,7 @@ deploy_app() {
     echo "==> Deploying $stack (unattended: the change set is checked before it runs)"
   else
     echo "==> Deploying $stack (review the change set)"
+    echo "    When the CloudFront distribution changes, sam shows no events for 5-20 min; that's normal."
   fi
   sam_deploy app
 
