@@ -23,6 +23,14 @@ npm run mock-api                                  # terminal 1
 API_ORIGIN=http://localhost:8787 npm start        # terminal 2, then open a link it printed
 ```
 
+| Path       | Purpose                                                                 |
+| ---------- | ----------------------------------------------------------------------- |
+| `api/`     | Lambda handlers (`src/handlers`) and pure logic (`src/lib`), with tests |
+| `web/`     | The guest page (Vite + TypeScript, no framework), unit and `e2e/` tests |
+| `infra/`   | SAM templates: `data/`, `app/`, and the optional `org/` SCP             |
+| `scripts/` | Setup, deploy, events, gallery, download, load and abuse tests          |
+| `docs/`    | How it works, architecture, ADRs, operations, AWS setup                 |
+
 ## Checks
 
 CI runs all of these on every pull request. Run them before you push:
@@ -40,6 +48,7 @@ npm run lint:docs       # every relative link and file:line reference in the Mar
 
 If your change moves test coverage, refresh the README badge with
 `npm run test:coverage && npm run coverage:badge`.
+If it changes the guest page's look, redraw the README screenshots with `npm run screenshots`.
 
 If it changes how a subsystem works, update its page in [docs/how-it-works/](docs/how-it-works/README.md).
 Diagrams there are Mermaid in the Markdown, plus the D2 architecture overview: edit

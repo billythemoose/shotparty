@@ -112,6 +112,9 @@ Templates are **AWS SAM** (`infra/*/template.yaml`): plain CloudFormation plus t
 | CloudWatch alarms: 13 alarm metrics per stage (the errors and throttles alarms sum 5 and 3 functions), first 10 per account free | ~$0.30 for one stage, ~$1.60 for dev + prod |
 | Log metric filters: 3 custom metrics per stage, published only when they match (first 10 free) | $0 |
 | **Total** | **≈ $1–$2/month** while live. Afterwards, storage drops to ~$0.10 with `ArchiveAfterDays` (Glacier Instant Retrieval), or to $0 after download and delete; the alarms remain until the stage is torn down |
+| Idle install with no photos: only the alarms | ~$0.30–$1.60/month |
+
+RAW photos (DNG from iPhone ProRAW or Android, CR2/CR3, NEF, ARW, RAF, ORF, RW2) are 5–10× the size of a JPEG, so an event where many guests shoot RAW can store a few hundred GB: a few dollars a month in S3 Standard, cut by about 80% with `ArchiveAfterDays`. Raise the session limits in the config's `uploads` section (or per event) for keen photographers.
 
 Paid options deliberately not used: WAF CAPTCHA (needs the $15/month CloudFront Pro plan), WAF Bot Control ($10/month+), a standalone WAF web ACL ($5/month + $1/rule), Secrets Manager, and a custom domain.
 
