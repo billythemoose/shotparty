@@ -74,6 +74,48 @@ export function stagesFromChoice(choice: string): StageName[] | null {
   }
 }
 
+function pad(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** A date as "YYYY-MM-DD HH:MM" in this machine's time zone: the interview's start-time format. */
+export function formatLocalTime(d: Date): string {
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
+/**
+ * The interview's start time: "YYYY-MM-DD HH:MM" in this machine's time zone, or an ISO date with
+ * an offset or Z for an event elsewhere. Null for anything else, including a day or time that
+ * doesn't exist (Feb 30, or a local time skipped by a daylight saving change).
+ */
+export function parseStartTime(input: string): Date | null {
+  const v = input.trim();
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(v)) {
+    const t = Date.parse(v.replace(' ', 'T'));
+    return Number.isNaN(t) ? null : new Date(t);
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/.exec(v);
+  if (!m) return null;
+  const [, y = '', mo = '', d = '', h = '', mi = ''] = m;
+  const date = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi));
+  // Date rolls invalid parts over (Feb 30 -> Mar 2), so a round trip catches them.
+  return formatLocalTime(date) === `${y}-${mo}-${d} ${h}:${mi}` ? date : null;
+}
+
+/** A date as ISO 8601 with this machine's UTC offset, e.g. "2026-11-14T16:00:00-08:00". */
+export function isoWithLocalOffset(d: Date): string {
+  const offset = -d.getTimezoneOffset();
+  const sign = offset < 0 ? '-' : '+';
+  const abs = Math.abs(offset);
+  return (
+    `${formatLocalTime(d).replace(' ', 'T')}:${pad(d.getSeconds())}` +
+    `${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`
+  );
+}
+
 /** What the setup interview collects. */
 export interface WizardAnswers {
   profile: string;

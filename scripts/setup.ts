@@ -52,7 +52,10 @@ import {
   configFromAnswers,
   isTestSiteKey,
   majorVersion,
+  formatLocalTime,
+  isoWithLocalOffset,
   parseCreateOutput,
+  parseStartTime,
   stagesFromChoice,
   TEST_SECRET,
   TEST_SITE_KEY,
@@ -607,16 +610,40 @@ async function interview(): Promise<void> {
   }
   if (await yes('Create your first event now?', true)) {
     const name = await ask('Event name (shown on the page)', '', required);
-    // The bracketed defaults are words, so taking one leaves the time to create-event.
-    const start = await ask(
-      'Event start time, when guests can start uploading (ISO date with offset, e.g. 2026-11-14T16:00:00-08:00)',
-      'now',
+    console.log(
+      `Times are in ${Intl.DateTimeFormat().resolvedOptions().timeZone} (this computer); ` +
+        'for an event elsewhere, add its offset, e.g. 2026-11-14 16:00-05:00.',
     );
-    const end = await ask('Upload deadline (ISO date with offset)', '60 days after start');
+    const start =
+      parseStartTime(
+        await ask('Uploads start (YYYY-MM-DD HH:MM)', formatLocalTime(new Date()), (v) =>
+          parseStartTime(v) ? null : 'use YYYY-MM-DD HH:MM, e.g. 2026-11-14 16:00',
+        ),
+      ) ?? new Date();
+    const days = Number(
+      await ask('Keep uploads open for how many days', '60', (v) =>
+        /^[1-9]\d{0,2}$/.test(v) ? null : 'a whole number of days, 1-999',
+      ),
+    );
+    // Calendar days, so the deadline keeps its clock time across a daylight saving change.
+    const end = new Date(start);
+    end.setDate(end.getDate() + days);
+    const shown: Intl.DateTimeFormatOptions = {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    };
+    console.log(
+      `  -> open ${start.toLocaleString('en-US', shown)} until ${end.toLocaleString('en-US', shown)}`,
+    );
     answers.event = {
       name,
-      openFrom: start === 'now' ? undefined : start,
-      openUntil: end === '60 days after start' ? undefined : end,
+      openFrom: isoWithLocalOffset(start),
+      openUntil: isoWithLocalOffset(end),
       pin: await yes('Require a PIN printed next to the QR code?', false),
       headline: (await ask('Headline (blank = "Share your photos")', '')) || undefined,
       welcome: (await ask('Welcome line (blank = default)', '')) || undefined,

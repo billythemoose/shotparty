@@ -3,6 +3,9 @@ import { type ResourceChange, riskyChanges } from '../lib/changeset-guard.js';
 import { parseConfig } from '../lib/config.js';
 import {
   configFromAnswers,
+  formatLocalTime,
+  isoWithLocalOffset,
+  parseStartTime,
   stagesFromChoice,
   isTestSiteKey,
   majorVersion,
@@ -111,6 +114,47 @@ describe('stagesFromChoice', () => {
     expect(stagesFromChoice('Dev')).toEqual(['dev']);
     expect(stagesFromChoice('both')).toEqual(['dev', 'prod']);
     expect(stagesFromChoice('staging')).toBeNull();
+  });
+});
+
+describe('parseStartTime', () => {
+  it("reads a local date and time in this machine's time zone", () => {
+    expect(parseStartTime('2026-11-14 16:00')).toEqual(new Date(2026, 10, 14, 16, 0));
+    expect(parseStartTime(' 2026-11-14T16:00 ')).toEqual(new Date(2026, 10, 14, 16, 0));
+  });
+
+  it('reads an ISO date with an offset or Z as that exact instant', () => {
+    expect(parseStartTime('2026-11-14T16:00:00-08:00')?.toISOString()).toBe(
+      '2026-11-15T00:00:00.000Z',
+    );
+    expect(parseStartTime('2026-11-14 16:00Z')?.toISOString()).toBe('2026-11-14T16:00:00.000Z');
+  });
+
+  it('refuses other formats and days or times that do not exist', () => {
+    for (const bad of [
+      'now',
+      '',
+      '11/14/2026 4pm',
+      '2026-11-14',
+      '2026-02-30 10:00',
+      '2026-11-14 24:00',
+    ]) {
+      expect(parseStartTime(bad)).toBeNull();
+    }
+  });
+
+  it('round-trips the default it shows', () => {
+    const now = new Date(2026, 9, 29, 21, 30);
+    expect(parseStartTime(formatLocalTime(now))).toEqual(now);
+  });
+});
+
+describe('isoWithLocalOffset', () => {
+  it('writes the same instant with an explicit offset', () => {
+    const d = new Date(2026, 10, 14, 16, 0);
+    const iso = isoWithLocalOffset(d);
+    expect(iso).toMatch(/^2026-11-14T16:00:00[+-]\d{2}:\d{2}$/);
+    expect(Date.parse(iso)).toBe(d.getTime());
   });
 });
 
