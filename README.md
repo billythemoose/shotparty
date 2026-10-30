@@ -27,8 +27,7 @@ one well under $1.
 </p>
 
 Built and run for a real event: printed QR cards, guests on venue Wi-Fi and cellular, every photo
-downloaded and checksum-verified afterwards. The key decisions, and the evidence behind them, are in
-[docs/adr/](docs/adr/README.md).
+downloaded and checksum-verified afterwards.
 
 ## Quick start
 
@@ -77,7 +76,6 @@ Everything after that (events, the day itself, downloads, the post-event runbook
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the architecture summary and the cost breakdown.
 - [SECURITY.md](SECURITY.md): the threat model, the protection layers and how to report a
   vulnerability.
-- [docs/adr/](docs/adr/README.md): the design decisions and the evidence behind them.
 - [CONTRIBUTING.md](CONTRIBUTING.md): working on the code without an AWS account, the checks and
   the ground rules.
 

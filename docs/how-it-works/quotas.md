@@ -150,8 +150,7 @@ sequenceDiagram
 Single-item writes to the same key are **serialized** rather than canceled: the second one waits a
 few milliseconds and succeeds. With single-item updates, the same kind of load test passed 300 out
 of 300 with a median presign time of 0.5 seconds. Single-item writes also cost half as much, since
-transactional writes are billed double. The decision is recorded in
-[ADR 0003](../adr/0003-no-dynamodb-transactions.md).
+transactional writes are billed double.
 
 ## Consistency
 

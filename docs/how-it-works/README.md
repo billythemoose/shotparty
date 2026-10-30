@@ -2,8 +2,7 @@
 
 These pages explain how each part of shotparty works inside: what happens on a request, which
 AWS resources take part, and why it's built that way. They're written for someone reading the code
-for the first time. For *running* an install, see [operations.md](../operations.md); for the
-decisions in brief, the [ADRs](../adr/README.md).
+for the first time. For *running* an install, see [operations.md](../operations.md).
 
 <p align="center">
   <picture>

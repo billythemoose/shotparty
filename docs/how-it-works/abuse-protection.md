@@ -117,7 +117,7 @@ The organizer handles that with the gallery, the kill switch and the per-session
 - Validation checks file type, not content: a real photo of anything passes.
 
 More in [SECURITY.md](../../SECURITY.md), and the cost reasoning behind the WAF in
-[ADR 0002](../adr/0002-cloudfront-free-plan-waf.md).
+[ARCHITECTURE.md](../ARCHITECTURE.md#cost).
 
 ## AWS references
 

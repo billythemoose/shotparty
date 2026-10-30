@@ -29,7 +29,7 @@ API_ORIGIN=http://localhost:8787 npm start        # terminal 2, then open a link
 | `web/`     | The guest page (Vite + TypeScript, no framework), unit and `e2e/` tests |
 | `infra/`   | SAM templates: `data/`, `app/`, and the optional `org/` SCP             |
 | `scripts/` | Setup, deploy, events, gallery, download, load and abuse tests          |
-| `docs/`    | How it works, architecture, ADRs, operations, AWS setup                 |
+| `docs/`    | How it works, architecture, operations, AWS setup                       |
 
 ## Checks
 

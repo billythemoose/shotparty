@@ -2,12 +2,12 @@
 
 Everything an organizer or developer runs after the [quick start](../README.md#quick-start): events,
 the day itself, the post-event runbook, configuration, deploys and live testing. The design is in
-[ARCHITECTURE.md](ARCHITECTURE.md); the decisions behind it are in [adr/](adr/README.md).
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Stages
 
 Each stage (`dev`, `prod`) is a **data stack** (bucket and table; protected, never replaced) and an
-**app stack** (everything else; safe to redeploy). See [ADR 0001](adr/0001-two-stack-split.md).
+**app stack** (everything else; safe to redeploy). See [deployment](how-it-works/deployment.md).
 Use `dev` for testing. Guests use `prod`: **don't recreate its app stack after the QR cards are
 printed**, because the CloudFront URL would change. The account-wide budget is a small third stack,
 `<prefix>-account`, which lives as long as any stage does.

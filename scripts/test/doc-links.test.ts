@@ -48,7 +48,7 @@ describe('isRepoLink', () => {
   it('skips URLs and mail links', () => {
     expect(isRepoLink('https://docs.aws.amazon.com/')).toBe(false);
     expect(isRepoLink('mailto:someone@example.com')).toBe(false);
-    expect(isRepoLink('../adr/README.md')).toBe(true);
+    expect(isRepoLink('../how-it-works/README.md')).toBe(true);
     expect(isRepoLink('#duplicates')).toBe(true);
   });
 });

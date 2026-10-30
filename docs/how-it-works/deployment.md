@@ -22,8 +22,7 @@ it with the last stage.
 
 ### How the data stack is protected
 
-Five independent safeguards, so no single mistake loses data
-([ADR 0001](../adr/0001-two-stack-split.md)):
+Five independent safeguards, so no single mistake loses data:
 
 1. **`DeletionPolicy: Retain` and `UpdateReplacePolicy: Retain`** on the bucket and the table: if
    CloudFormation ever deletes or replaces them, it leaves the real resource behind.
@@ -123,7 +122,7 @@ setup skips the account stack and says which stage to run.
 
 ### The one manual step
 
-The [CloudFront Free plan](../adr/0002-cloudfront-free-plan-waf.md), which provides the WAF for
+The CloudFront Free plan, which provides the WAF for
 $0, can only be subscribed to in the console. Setup detects the plan's web ACL afterwards and passes
 it to the app stack as `WebAclArn`, so later deploys keep the association instead of drifting it
 away ([template.yaml:403](../../infra/app/template.yaml#L403)).

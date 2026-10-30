@@ -1,6 +1,6 @@
 # shotparty: Architecture
 
-> For how each subsystem works inside, with diagrams and code references, see [how-it-works/](how-it-works/README.md). The decisions behind the design are in [adr/](adr/README.md).
+> For how each subsystem works inside, with diagrams and code references, see [how-it-works/](how-it-works/README.md).
 
 ## Overview
 
@@ -95,7 +95,7 @@ Templates are **AWS SAM** (`infra/*/template.yaml`): plain CloudFormation plus t
 - **Presigned POST, not PUT:** a POST policy is **enforced by S3** for the exact key, content type and size. A presigned PUT doesn't reliably enforce size. A single POST handles files up to 5 GB, so there is no multipart upload; the tradeoff is no mid-file resume, which is fine for phone media.
 - **API Gateway HTTP API, not a Lambda Function URL:** it provides free per-route throttling and avoids the OAC payload-signing complication Function URLs have with POST bodies.
 - **EventBridge, not S3 → Lambda notifications:** the bucket lives in the data stack and the Lambda in the app stack, and an S3 notification would create a cross-stack dependency cycle.
-- **No DynamoDB transactions for quotas:** the shared event and IP counters cause `TransactionConflict` under load, so each counter is a single-item conditional update with explicit rollback ([ADR 0003](adr/0003-no-dynamodb-transactions.md)).
+- **No DynamoDB transactions for quotas:** the shared event and IP counters cause `TransactionConflict` under load, so each counter is a single-item conditional update with explicit rollback ([quotas](how-it-works/quotas.md)).
 - **No custom domain:** the QR code uses the CloudFront domain. Recreating the prod app stack changes that domain, so it must not be recreated between printing the cards and the end of the upload window.
 - **One Turnstile widget per install**, shared by dev and prod (both hostnames). Session keys and origin secrets are per stage.
 

@@ -153,7 +153,6 @@ the original event.
 
 ## Related
 
-- [ADR 0004: Validate uploads by their magic bytes](../adr/0004-magic-byte-validation.md)
 - [Data model](data-model.md) for the `CONTENT#` and `REJECT#` items.
 
 ## AWS references
