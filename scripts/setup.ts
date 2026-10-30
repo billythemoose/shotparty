@@ -577,11 +577,15 @@ async function interview(): Promise<void> {
       ) ?? [],
     siteKeys: {},
   };
-  const accountId = await ask(
-    'Cloudflare account ID, so setup creates the Turnstile widget (blank = enter keys yourself)',
-    '',
-    (v) => (!v || /^[0-9a-f]{32}$/.test(v) ? null : '32 hex characters, from the dashboard URL'),
-  );
+  // Only prod gets a real widget; dev runs on the test key unless given one.
+  const accountId = answers.stages.includes('prod')
+    ? await ask(
+        'Cloudflare account ID, so setup creates the Turnstile widget (blank = enter keys yourself)',
+        '',
+        (v) =>
+          !v || /^[0-9a-f]{32}$/.test(v) ? null : '32 hex characters, from the dashboard URL',
+      )
+    : '';
   if (accountId) answers.cloudflareAccountId = accountId;
   for (const st of answers.stages) {
     if (accountId && st === 'prod') continue; // setup creates it
