@@ -2,9 +2,10 @@
 # Deploy shotparty.  Usage: scripts/deploy.sh <data|app|site|all> <dev|prod>   or   scripts/deploy.sh account
 #   data: data stack    app: app stack + site    site: static site only    all: data, app, site
 #   account: the <prefix>-account stack (the account-wide budget; one for all stages)
-# Every stack deploy shows a CloudFormation change set and waits for confirmation, unless
-# SHOTPARTY_ASSUME_YES=1 (npm run setup, CI): then the change set is checked by
-# scripts/changeset-guard.ts and executed only if nothing protected would be replaced or deleted.
+# Every stack deploy shows a CloudFormation change set, checks it with scripts/changeset-guard.ts
+# and waits for confirmation (the guard's findings are a warning). With SHOTPARTY_ASSUME_YES=1
+# (npm run setup, CI) nobody is asked: the change set is executed only if nothing protected would
+# be replaced or deleted.
 set -euo pipefail
 
 TARGET="${1:-}"
@@ -22,6 +23,12 @@ usage() {
 [[ "$TARGET" =~ ^(data|app|site|all|account)$ ]] || usage
 [[ "$TARGET" == account || "$STAGE" =~ ^(dev|prod)$ ]] || usage
 
+# Drops a change set that won't run; the stack stays as it was.
+delete_change_set() {
+  aws cloudformation delete-change-set --change-set-name "$1" \
+    --profile "$PROFILE" --region "$REGION" || true
+}
+
 # sam deploy with the arguments built from shotparty.config.json + the live account (no samconfig.toml).
 sam_deploy() {
   local kind="$1"
@@ -30,25 +37,33 @@ sam_deploy() {
   local args=(--stack-name "$STACK_NAME" --parameter-overrides "${PARAM_OVERRIDES[@]}"
     --tags "${TAGS[@]}" --region "$REGION" --profile "$PROFILE" --no-fail-on-empty-changeset)
   [[ "$kind" == "app" ]] && args+=(--capabilities CAPABILITY_IAM --resolve-s3)
-  if [[ "${SHOTPARTY_ASSUME_YES:-}" != "1" ]]; then
-    (cd "$ROOT/infra/$kind" && sam deploy "${args[@]}" --confirm-changeset)
-    return
-  fi
 
-  # Unattended: create the change set, check it, then execute it ourselves.
-  local out changeset new_stack=false
-  out="$(cd "$ROOT/infra/$kind" && sam deploy "${args[@]}" --no-execute-changeset 2>&1)" || {
-    echo "$out" >&2
+  # Create the change set, check it, then execute it ourselves (not sam deploy --confirm-changeset),
+  # so wait_stack shows progress in both modes. tee shows sam's output (the change set) as it comes
+  # and keeps it for the ARN; with pipefail, a failed sam deploy still fails here.
+  local out changeset answer new_stack=false
+  out="$(cd "$ROOT/infra/$kind" && sam deploy "${args[@]}" --no-execute-changeset 2>&1 | tee /dev/stderr)" ||
     return 1
-  }
-  echo "$out"
   changeset="$(grep -oE 'arn:aws:cloudformation:[^ ]+:changeSet/[^ ]+' <<<"$out" | head -1 || true)"
   [[ -n "$changeset" ]] || return 0 # "No changes to deploy"
-  (cd "$ROOT" && npx --no-install tsx scripts/changeset-guard.ts "$kind" "$changeset") || {
-    aws cloudformation delete-change-set --change-set-name "$changeset" \
-      --profile "$PROFILE" --region "$REGION" || true
-    return 1
-  }
+  if [[ "${SHOTPARTY_ASSUME_YES:-}" == "1" ]]; then
+    (cd "$ROOT" && npx --no-install tsx scripts/changeset-guard.ts "$kind" "$changeset") || {
+      delete_change_set "$changeset"
+      return 1
+    }
+  else
+    # Interactive: the guard warns, and a human decides (a deliberate replacement is deployed here).
+    if (cd "$ROOT" && npx --no-install tsx scripts/changeset-guard.ts "$kind" "$changeset" --warn); then
+      read -r -p "Deploy this changeset? [y/N]: " answer || answer=""
+    else
+      read -r -p "Deploy anyway? [y/N]: " answer || answer=""
+    fi
+    [[ "$answer" =~ ^[yY] ]] || {
+      delete_change_set "$changeset"
+      echo "==> Not deployed: $STACK_NAME is unchanged" >&2
+      return 1
+    }
+  fi
   [[ "$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --profile "$PROFILE" \
     --region "$REGION" --query 'Stacks[0].StackStatus' --output text)" == REVIEW_IN_PROGRESS ]] &&
     new_stack=true
@@ -110,7 +125,6 @@ deploy_app() {
     echo "==> Deploying $stack (unattended: the change set is checked before it runs)"
   else
     echo "==> Deploying $stack (review the change set)"
-    echo "    When the CloudFront distribution changes, sam shows no events for 5-20 min; that's normal."
   fi
   sam_deploy app
 

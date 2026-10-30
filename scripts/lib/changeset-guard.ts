@@ -1,7 +1,7 @@
 /**
  * @fileoverview Decides whether a CloudFormation change set is safe to execute without a human
- * reading it. Interactive deploys show the change set and ask; unattended ones (setup, CI) go
- * through this.
+ * reading it. Unattended deploys (setup, CI) refuse a risky one; interactive deploys show the
+ * reasons as a warning and ask.
  */
 import type { StackKind } from './deploy-params.js';
 
@@ -20,8 +20,9 @@ export interface ResourceChange {
 const PROTECTED_APP_RESOURCES = new Set(['Distribution']);
 
 /**
- * Human-readable reasons to refuse; empty means safe to execute unattended. Nothing in the account
- * stack is protected: its only resource is the account budget, which is recreated as it was.
+ * Human-readable reasons to refuse (or warn); empty means safe to execute unattended. Nothing in
+ * the account stack is protected: its only resource is the account budget, which is recreated as
+ * it was.
  */
 export function riskyChanges(kind: StackKind | 'account', changes: ResourceChange[]): string[] {
   const reasons: string[] = [];

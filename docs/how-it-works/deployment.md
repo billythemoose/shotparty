@@ -75,21 +75,24 @@ flowchart LR
   256 MB and a 10-second timeout (60 seconds for validate).
 - **The site** syncs the built page. Hashed assets are cached for a year, `index.html` is never
   cached, and CloudFront is invalidated only if something changed
-  ([deploy.sh:153](../../scripts/deploy.sh#L153)).
+  ([deploy.sh:167](../../scripts/deploy.sh#L167)).
 
 ### Change sets and the guard
 
 Every stack deploy creates a **change set** first: the list of resources CloudFormation will add,
-modify, replace or remove.
+modify, replace or remove. `sam deploy --no-execute-changeset` creates and prints it,
+`scripts/changeset-guard.ts` checks it, and `deploy.sh` executes it and waits with `wait_stack`,
+which prints each finished resource (with the reason for a failure) and, on a terminal, a spinner.
 
-- **Interactively**, `sam deploy --confirm-changeset` shows it and waits for a `y`. The data deploy
-  reminds you to look for `Replacement: True`.
+- **Interactively**, it asks `Deploy this changeset? [y/N]`. When
+  [`riskyChanges`](../../scripts/lib/changeset-guard.ts#L27) finds something, the guard prints it
+  as a warning and the question becomes `Deploy anyway?`, so a deliberate replacement is still
+  possible ([deploy.sh:56](../../scripts/deploy.sh#L56)). Any other answer deletes the change set.
 - **Unattended** (`npm run setup -- --config …`, or `SHOTPARTY_ASSUME_YES=1`), nobody reads it, so
-  `scripts/changeset-guard.ts` does ([deploy.sh:47](../../scripts/deploy.sh#L47)). The change set
-  is executed only if [`riskyChanges`](../../scripts/lib/changeset-guard.ts#L26) finds nothing;
-  otherwise it's deleted and the deploy stops.
+  the guard decides ([deploy.sh:50](../../scripts/deploy.sh#L50)). The change set is executed only
+  if `riskyChanges` finds nothing; otherwise it's deleted and the deploy stops.
 
-| Stack | The guard refuses                                                                  |
+| Stack | The guard flags                                                                    |
 | ----- | ---------------------------------------------------------------------------------- |
 | Data  | Any resource that would be removed, replaced, or *might* be replaced (`Conditional`) |
 | App   | The same, but only for the CloudFront `Distribution`                               |

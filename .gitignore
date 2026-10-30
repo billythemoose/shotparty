@@ -9,6 +9,10 @@ node_modules/
 samconfig.toml
 samconfig.local.toml
 shotparty.config.json
+# Backups and copies of the config (shotparty.config.old.json, …); the example and schema are tracked.
+shotparty.config.*.json
+!shotparty.config.example.json
+!shotparty.config.schema.json
 qr-codes/
 galleries/
 photos/

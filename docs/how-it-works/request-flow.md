@@ -53,7 +53,7 @@ bits ([events.ts:98](../../api/src/lib/events.ts#L98)).
   viewer-request function rather than a custom error page, because an error-page rule would also
   rewrite real `403`/`404` answers from the API.
 - The page's assets have hashed names and are cached for a year; `index.html` is uploaded with
-  `no-cache`, so a redeploy shows up on the next load ([deploy.sh:149](../../scripts/deploy.sh#L149)).
+  `no-cache`, so a redeploy shows up on the next load ([deploy.sh:163](../../scripts/deploy.sh#L163)).
 
 ## 2. The event lookup
 

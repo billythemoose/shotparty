@@ -1,8 +1,10 @@
 /**
- * @fileoverview Used by scripts/deploy.sh for unattended deploys: exits 1 (and explains) when the
- * change set would replace or delete protected resources (see scripts/lib/changeset-guard.ts).
+ * @fileoverview Used by scripts/deploy.sh before every change set runs: exits 1 (and explains) when
+ * the change set would replace or delete protected resources (see scripts/lib/changeset-guard.ts).
+ * Unattended deploys stop there; with --warn (interactive deploys) the explanation is a warning
+ * and deploy.sh asks whether to deploy anyway.
  *
- *   tsx scripts/changeset-guard.ts <data|app|account> <change-set-arn>
+ *   tsx scripts/changeset-guard.ts <data|app|account> <change-set-arn> [--warn]
  */
 import {
   CloudFormationClient,
@@ -12,9 +14,14 @@ import {
 import { awsProfile, loadConfigOrExit } from './lib/config.js';
 import { type ResourceChange, riskyChanges } from './lib/changeset-guard.js';
 
-const [kind, arn] = process.argv.slice(2);
-if ((kind !== 'data' && kind !== 'app' && kind !== 'account') || !arn) {
-  console.error('usage: changeset-guard.ts <data|app|account> <change-set-arn>');
+const [kind, arn, flag] = process.argv.slice(2);
+const warnOnly = flag === '--warn';
+if (
+  (kind !== 'data' && kind !== 'app' && kind !== 'account') ||
+  !arn ||
+  (flag !== undefined && !warnOnly)
+) {
+  console.error('usage: changeset-guard.ts <data|app|account> <change-set-arn> [--warn]');
   process.exit(2);
 }
 
@@ -36,11 +43,19 @@ do {
 
 const reasons = riskyChanges(kind, changes);
 if (reasons.length) {
-  console.error(`refusing to execute this ${kind} change set unattended:`);
+  console.error(
+    warnOnly
+      ? `WARNING: this ${kind} change set changes protected resources:`
+      : `refusing to execute this ${kind} change set unattended:`,
+  );
   for (const r of reasons) {
     console.error(`  - ${r}`);
   }
-  console.error('Review it and deploy interactively (scripts/deploy.sh) if it is really intended.');
+  console.error(
+    warnOnly
+      ? 'Deploy only if this is really intended.'
+      : 'Review it and deploy interactively (scripts/deploy.sh) if it is really intended.',
+  );
   process.exit(1);
 }
 console.log(

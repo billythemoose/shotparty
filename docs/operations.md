@@ -99,10 +99,11 @@ scripts/bootstrap-secrets.sh <stage> [--set-turnstile-secret] [--set-alert-email
 ```
 
 Always review the change set; the data stack must never show `Replacement: True` (its stack policy
-refuses it anyway). Unattended runs (`npm run setup -- --config …`, or `SHOTPARTY_ASSUME_YES=1`)
-check every change set with `scripts/changeset-guard.ts` instead, and refuse to execute one that
-would replace or delete anything in the data stack, or replace the CloudFront distribution (its
-URL is in every printed QR code). `deploy.sh` builds the `sam deploy` arguments from the config plus the live
+refuses it anyway). Every change set is also checked by `scripts/changeset-guard.ts`, which flags
+anything that would replace or delete a data-stack resource, or replace the CloudFront
+distribution (its URL is in every printed QR code). Interactively, a flagged change set asks
+`Deploy anyway?`; unattended runs (`npm run setup -- --config …`, or `SHOTPARTY_ASSUME_YES=1`)
+refuse to execute it. `deploy.sh` builds the `sam deploy` arguments from the config plus the live
 account (the site URL and the distribution's web ACL), so there is no `samconfig.toml` to edit. On a
 stage's first deploy, run `data`, `app`, then `data` and `app` again, so both pick up the new site
 URL. One-time console steps per stage (not in CloudFormation): subscribe the CloudFront distribution
