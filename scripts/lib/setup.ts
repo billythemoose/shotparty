@@ -60,6 +60,20 @@ export function parseCreateOutput(output: string): { guestUrl?: string; pin?: st
   return { ...(guestUrl ? { guestUrl } : {}), ...(pin ? { pin } : {}) };
 }
 
+/** The stages for the interview's answer: "prod", "dev" or "both". Null for anything else. */
+export function stagesFromChoice(choice: string): StageName[] | null {
+  switch (choice.toLowerCase()) {
+    case 'prod':
+      return ['prod'];
+    case 'dev':
+      return ['dev'];
+    case 'both':
+      return ['dev', 'prod'];
+    default:
+      return null;
+  }
+}
+
 /** What the setup interview collects. */
 export interface WizardAnswers {
   profile: string;

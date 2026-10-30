@@ -53,6 +53,7 @@ import {
   isTestSiteKey,
   majorVersion,
   parseCreateOutput,
+  stagesFromChoice,
   TEST_SECRET,
   TEST_SITE_KEY,
   TOOLS,
@@ -566,9 +567,14 @@ async function interview(): Promise<void> {
     email: await ask('Email for alarms and budget alerts', '', (v) =>
       /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) ? null : "that doesn't look like an email address",
     ),
-    stages: (await yes('Also create a dev stage for testing changes?', false))
-      ? ['dev', 'prod']
-      : ['prod'],
+    stages:
+      stagesFromChoice(
+        await ask(
+          'Stages to create: prod (for the event), dev (to try it out) or both',
+          'prod',
+          (v) => (stagesFromChoice(v) ? null : 'prod, dev or both'),
+        ),
+      ) ?? [],
     siteKeys: {},
   };
   const accountId = await ask(
@@ -580,7 +586,9 @@ async function interview(): Promise<void> {
   for (const st of answers.stages) {
     if (accountId && st === 'prod') continue; // setup creates it
     answers.siteKeys[st] = await ask(
-      `Cloudflare Turnstile site key for ${st} (Cloudflare dashboard -> Turnstile; blank = test key)`,
+      st === 'dev'
+        ? 'Cloudflare Turnstile site key for dev (Cloudflare dashboard -> Turnstile; blank = test key)'
+        : 'Cloudflare Turnstile site key for prod (Cloudflare dashboard -> Turnstile; required)',
       st === 'dev' ? TEST_SITE_KEY : '',
       (v) => (v || st === 'dev' ? null : 'prod needs a real site key'),
     );

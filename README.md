@@ -40,13 +40,20 @@ missing.
    ```sh
    git clone https://github.com/billythemoose/shotparty.git && cd shotparty && npm ci
    aws sso login --profile <your-profile>          # or any credentials the AWS CLI can use
-   export CLOUDFLARE_API_TOKEN=…                   # optional: Account > Turnstile > Edit
+   export CLOUDFLARE_API_TOKEN=…                   # for prod: Account > Turnstile > Edit
    ```
-2. **Run setup.** It asks a few questions, saves `shotparty.config.json`, deploys both stacks,
+2. **Run setup.** It asks a few questions, saves `shotparty.config.json`, deploys the stacks,
    creates the Turnstile widget and secrets, and creates your first event with its QR code.
    ```sh
    npm run setup
    ```
+   It asks which stages to create:
+   - **`dev`** to try it out. It runs on Cloudflare's test key, which always passes, so it needs
+     no Cloudflare setup. Don't use it for a real event: the test key stops no bots.
+   - **`prod`** for the event. It needs a real Turnstile widget. Give setup your Cloudflare account
+     ID and the token above, and it creates the widget. Without the token, create a widget in the
+     Cloudflare dashboard (Turnstile → Add widget) and enter its keys when setup asks.
+   - **`both`**.
 3. **Confirm and print.** Click the AWS alert email's confirmation link, then print the QR code
    from `qr-codes/`. Optionally subscribe the distribution to the CloudFront Free plan in the
    console (setup names the distribution; there's no API for it) and run setup again to attach
@@ -60,9 +67,8 @@ account behind a region-deny SCP, follow the optional hardened path in the same 
 
 Setup is safe to re-run: it resumes after a failure and changes nothing on a finished install. To
 run it unattended, fill in the config yourself (`cp shotparty.config.example.json
-shotparty.config.json`) and run `npm run setup -- --config shotparty.config.json`. Without a
-Cloudflare token, create the Turnstile widget by hand and enter its keys. Remove a stage with
-`npm run teardown -- <stage> [--keep-data]`.
+shotparty.config.json`) and run `npm run setup -- --config shotparty.config.json`. Remove a stage
+with `npm run teardown -- <stage> [--keep-data]`.
 
 Everything after that (events, the day itself, downloads, the post-event runbook) is in
 [docs/operations.md](docs/operations.md).

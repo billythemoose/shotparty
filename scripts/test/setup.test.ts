@@ -3,6 +3,7 @@ import { type ResourceChange, riskyChanges } from '../lib/changeset-guard.js';
 import { parseConfig } from '../lib/config.js';
 import {
   configFromAnswers,
+  stagesFromChoice,
   isTestSiteKey,
   majorVersion,
   parseCreateOutput,
@@ -104,6 +105,15 @@ describe('setup helpers', () => {
   });
 });
 
+describe('stagesFromChoice', () => {
+  it('maps each answer to its stages', () => {
+    expect(stagesFromChoice('prod')).toEqual(['prod']);
+    expect(stagesFromChoice('Dev')).toEqual(['dev']);
+    expect(stagesFromChoice('both')).toEqual(['dev', 'prod']);
+    expect(stagesFromChoice('staging')).toBeNull();
+  });
+});
+
 describe('configFromAnswers', () => {
   const base: WizardAnswers = {
     profile: 'default',
@@ -121,6 +131,20 @@ describe('configFromAnswers', () => {
     expect(config.budgets.accountMonthlyUsd).toBe(20);
     expect(config.alerts.email).toBe('me@example.com');
     expect(raw).not.toHaveProperty('events');
+  });
+
+  it('puts the first event on dev when dev is the only stage', () => {
+    const config = parseConfig(
+      configFromAnswers({
+        ...base,
+        stages: ['dev'],
+        siteKeys: {},
+        event: { name: 'Try Out', openFrom: '2027-03-01T18:00:00-08:00', pin: false },
+      }),
+    );
+    expect(Object.keys(config.stages)).toEqual(['dev']);
+    expect(config.stages.dev).toMatchObject({ turnstileSiteKey: TEST_SITE_KEY });
+    expect(config.events[0]).toMatchObject({ eventId: 'try-out-2027', stage: 'dev' });
   });
 
   it('uses the test key for a blank dev key', () => {
