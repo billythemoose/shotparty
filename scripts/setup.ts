@@ -607,10 +607,16 @@ async function interview(): Promise<void> {
   }
   if (await yes('Create your first event now?', true)) {
     const name = await ask('Event name (shown on the page)', '', required);
+    // The bracketed defaults are words, so taking one leaves the time to create-event.
+    const start = await ask(
+      'Event start time, when guests can start uploading (ISO date with offset, e.g. 2026-11-14T16:00:00-08:00)',
+      'now',
+    );
+    const end = await ask('Upload deadline (ISO date with offset)', '60 days after start');
     answers.event = {
       name,
-      openFrom: (await ask('Uploads open (ISO date with offset, blank = now)', '')) || undefined,
-      openUntil: (await ask('Uploads close (blank = 60 days after opening)', '')) || undefined,
+      openFrom: start === 'now' ? undefined : start,
+      openUntil: end === '60 days after start' ? undefined : end,
       pin: await yes('Require a PIN printed next to the QR code?', false),
       headline: (await ask('Headline (blank = "Share your photos")', '')) || undefined,
       welcome: (await ask('Welcome line (blank = default)', '')) || undefined,
