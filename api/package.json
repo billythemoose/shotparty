@@ -8,7 +8,7 @@
     "smoke": "node smoke.mjs"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.163",
+    "@types/aws-lambda": "^8.10.164",
     "esbuild": "^0.28.2"
   },
   "dependencies": {
